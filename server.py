@@ -19,6 +19,17 @@ from datetime import datetime, timedelta
 from functools import wraps
 from typing import Optional
 
+# Carica .env se presente (locale o in /etc/aste-giudiziarie/.env in prod)
+try:
+    from dotenv import load_dotenv
+    # Cerca .env locale prima, poi quello di sistema
+    for _p in (".env", "/etc/aste-giudiziarie/.env"):
+        if os.path.exists(_p):
+            load_dotenv(_p, override=False)
+            break
+except ImportError:
+    pass
+
 from flask import (
     Flask, jsonify, request, abort, send_from_directory, session, redirect
 )

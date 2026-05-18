@@ -1,37 +1,49 @@
 #!/usr/bin/env bash
 # =====================================================================
-# Aste Giudiziarie — aggiornamento codice
+# Aste Giudiziarie — aggiornamento da git
 #
-# Esegue git pull, reinstalla eventuali nuove dipendenze, riavvia il
-# servizio. Da lanciare sulla VPS dopo un commit/push dal locale.
+# git pull → reinstalla dep cambiate → pm2 restart
 #
-# Uso:
-#   sudo bash /opt/aste.giudiziarie/deploy/update.sh
+# Uso (sul VPS):
+#   sudo bash /root/aste-giudiziarie/deploy/update.sh
 # =====================================================================
 set -euo pipefail
 
-APP_DIR=/opt/aste.giudiziarie
-APP_USER=aste
-SERVICE_NAME=aste-server
+APP_DIR=/root/aste-giudiziarie
+ENV_FILE=/etc/aste-giudiziarie/.env
 
 if [[ $EUID -ne 0 ]]; then
-  echo "ERRORE: lanciare con sudo."
+  echo "ERRORE: lanciare come root o con sudo."
   exit 1
 fi
 
-echo "==> git pull"
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "ERRORE: $ENV_FILE non esiste. Setup non completato."
+  exit 1
+fi
+
+# Carica GITHUB_PAT da .env (per repo privato)
+set -a
+source "$ENV_FILE"
+set +a
+
+if [[ -z "${GITHUB_PAT:-}" ]]; then
+  echo "ERRORE: GITHUB_PAT mancante in $ENV_FILE."
+  exit 1
+fi
+
+echo "==> git pull (con PAT)"
 cd "$APP_DIR"
-sudo -u "$APP_USER" git pull --ff-only
+git -c http.extraHeader="Authorization: Bearer $GITHUB_PAT" pull --ff-only
 
-echo "==> aggiorno dipendenze (se cambiate)"
-sudo -u "$APP_USER" "$APP_DIR/.venv/bin/pip" install -r requirements.txt -q
+echo "==> aggiorno dipendenze"
+"$APP_DIR/.venv/bin/pip" install -r requirements.txt -q
 
-echo "==> riavvio servizio"
-systemctl restart "$SERVICE_NAME"
-sleep 2
-systemctl status "$SERVICE_NAME" --no-pager -l | head -10
+echo "==> riavvio pm2"
+pm2 restart aste-giudiziarie
+pm2 save
 
 echo ""
 echo "================================================================"
-echo "  Aggiornato. Log live: tail -f /var/log/aste-server.log"
+echo "  Aggiornato. Log: pm2 logs aste-giudiziarie --lines 30"
 echo "================================================================"
