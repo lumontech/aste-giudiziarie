@@ -72,22 +72,47 @@ CORS(app, origins="*", supports_credentials=True)
 
 
 # ---------------------------------------------------------------------------
-# Auth
+# Auth — supporta multi-utente
 # ---------------------------------------------------------------------------
-ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
-ADMIN_PASSWORD_HASH = os.environ.get("ADMIN_PASSWORD_HASH", "")
-# Fallback dev: password in chiaro via ADMIN_PASSWORD (solo se hash non settato)
-ADMIN_PASSWORD_PLAIN = os.environ.get("ADMIN_PASSWORD", "")
+# Modalità multi-utente (PROD):
+#   ADMIN_USERS=stefano,antonio
+#   ADMIN_HASH_stefano=$2b$12$...
+#   ADMIN_HASH_antonio=$2b$12$...
+#
+# Modalità legacy single-user (compat):
+#   ADMIN_USER=stefano
+#   ADMIN_PASSWORD_HASH=$2b$12$...
 AUTH_ENABLED = os.environ.get("AUTH_ENABLED", "true").lower() == "true"
 
+def _load_users() -> dict:
+    """Costruisce mappa {username: bcrypt_hash} da env."""
+    users: dict[str, str] = {}
+    raw = os.environ.get("ADMIN_USERS", "").strip()
+    if raw:
+        for u in [x.strip() for x in raw.split(",") if x.strip()]:
+            h = os.environ.get(f"ADMIN_HASH_{u}", "").strip()
+            if h:
+                users[u] = h
+    # Fallback legacy single-user
+    legacy_user = os.environ.get("ADMIN_USER", "").strip()
+    legacy_hash = os.environ.get("ADMIN_PASSWORD_HASH", "").strip()
+    if legacy_user and legacy_hash and legacy_user not in users:
+        users[legacy_user] = legacy_hash
+    return users
 
-def _verify_password(plain: str) -> bool:
-    if ADMIN_PASSWORD_HASH and _HAS_BCRYPT:
+ADMIN_USERS_MAP = _load_users()
+ADMIN_PASSWORD_PLAIN = os.environ.get("ADMIN_PASSWORD", "")  # solo dev
+
+
+def _verify_password(user: str, plain: str) -> bool:
+    h = ADMIN_USERS_MAP.get(user)
+    if h and _HAS_BCRYPT:
         try:
-            return bcrypt.checkpw(plain.encode("utf-8"), ADMIN_PASSWORD_HASH.encode("utf-8"))
+            return bcrypt.checkpw(plain.encode("utf-8"), h.encode("utf-8"))
         except Exception:
             return False
-    if ADMIN_PASSWORD_PLAIN:
+    # Dev fallback: password in chiaro (solo se utente non in mappa)
+    if not ADMIN_USERS_MAP and ADMIN_PASSWORD_PLAIN:
         return secrets.compare_digest(plain, ADMIN_PASSWORD_PLAIN)
     return False
 
@@ -97,7 +122,8 @@ def require_auth(fn):
     def wrapper(*args, **kwargs):
         if not AUTH_ENABLED:
             return fn(*args, **kwargs)
-        if session.get("user") == ADMIN_USER:
+        u = session.get("user")
+        if u and u in ADMIN_USERS_MAP:
             return fn(*args, **kwargs)
         return jsonify({"error": "unauthorized"}), 401
     return wrapper
@@ -236,13 +262,15 @@ def favicon():
 @app.route("/api/login", methods=["POST"])
 def login():
     if not AUTH_ENABLED:
-        session["user"] = ADMIN_USER
+        # Quando auth è disabilitata, usa il primo utente della mappa o "admin"
+        u = next(iter(ADMIN_USERS_MAP), "admin")
+        session["user"] = u
         session.permanent = True
-        return jsonify({"ok": True, "user": ADMIN_USER, "auth_disabled": True})
+        return jsonify({"ok": True, "user": u, "auth_disabled": True})
     body = request.get_json(silent=True) or {}
     user = (body.get("username") or "").strip()
     pwd = body.get("password") or ""
-    if user != ADMIN_USER or not _verify_password(pwd):
+    if user not in ADMIN_USERS_MAP or not _verify_password(user, pwd):
         return jsonify({"error": "Credenziali non valide"}), 401
     session.clear()
     session["user"] = user
@@ -259,9 +287,10 @@ def logout():
 
 @app.route("/api/me", methods=["GET"])
 def me():
+    u = session.get("user")
     return jsonify({
-        "authenticated": session.get("user") == ADMIN_USER or not AUTH_ENABLED,
-        "user": session.get("user"),
+        "authenticated": (u in ADMIN_USERS_MAP) or not AUTH_ENABLED,
+        "user": u,
         "auth_enabled": AUTH_ENABLED,
     })
 
