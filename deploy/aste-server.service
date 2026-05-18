@@ -1,0 +1,23 @@
+[Unit]
+Description=Aste Giudiziarie Flask Server
+After=network.target
+
+[Service]
+Type=simple
+User=aste
+Group=aste
+WorkingDirectory=/opt/aste.giudiziarie
+EnvironmentFile=/opt/aste.giudiziarie/.env
+ExecStart=/opt/aste.giudiziarie/.venv/bin/python server.py --host 127.0.0.1 --port 5000
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/aste-server.log
+StandardError=append:/var/log/aste-server.log
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

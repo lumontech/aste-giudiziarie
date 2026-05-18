@@ -1,0 +1,37 @@
+# Ambiente Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Dati dello scraper (rigenerati su VPS, mai committare)
+results.json
+results_backup.json
+*.log
+nohup.out
+
+# Segreti — MAI committare
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secret*
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Build / dist
+build/
+dist/
+*.egg-info/
+
+# Playwright cache locale
+ms-playwright/

@@ -1,0 +1,1775 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aste Giudiziarie — Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  /* ============================================================
+     RESET + BASE
+     ============================================================ */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #080808;
+    --card: #111111;
+    --card-2: #161616;
+    --border: #1f1f1f;
+    --border-2: #2a2a2a;
+    --text: #e7e7e7;
+    --text-dim: #8a8a8a;
+    --text-faint: #555;
+    --green: #4ade80;
+    --green-dim: rgba(74, 222, 128, 0.12);
+    --gold: #c8a97e;
+    --gold-dim: rgba(200, 169, 126, 0.14);
+    --red: #f87171;
+    --red-dim: rgba(248, 113, 113, 0.14);
+    --yellow: #fbbf24;
+    --yellow-dim: rgba(251, 191, 36, 0.14);
+    --blue: #60a5fa;
+    --mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+  }
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: #222; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #333; }
+  button { font-family: inherit; cursor: pointer; }
+  input, select { font-family: inherit; }
+  a { color: inherit; text-decoration: none; }
+
+  /* ============================================================
+     LAYOUT GLOBALE
+     ============================================================ */
+  .app {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    grid-template-rows: 56px 1fr;
+    height: 100vh;
+    overflow: hidden;
+  }
+  .header {
+    grid-column: 1 / 3;
+    background: #0c0c0c;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 16px;
+  }
+  .sidebar {
+    background: #0a0a0a;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 16px;
+  }
+  .main {
+    overflow-y: auto;
+    padding: 20px 24px 40px;
+  }
+
+  /* ============================================================
+     HEADER
+     ============================================================ */
+  .logo {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--mono);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .logo-mark {
+    width: 28px; height: 28px;
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    display: grid; place-items: center;
+    font-size: 14px;
+    border-radius: 3px;
+  }
+  .logo-title { font-size: 13px; }
+  .logo-title small {
+    display: block;
+    color: var(--text-dim);
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .tabs {
+    display: flex; gap: 4px; margin-left: 24px;
+  }
+  .tab {
+    padding: 6px 14px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-dim);
+    font-size: 12px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .tab.active {
+    background: var(--card);
+    color: var(--gold);
+    border-color: var(--border-2);
+  }
+  .header-right {
+    margin-left: auto;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .server-status {
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 4px 10px;
+    border: 1px solid var(--border-2);
+    border-radius: 3px;
+    color: var(--text-dim);
+  }
+  .server-status .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--red);
+    box-shadow: 0 0 6px var(--red);
+  }
+  .server-status.online .dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .server-status.online { color: var(--green); }
+  .btn {
+    background: var(--card);
+    border: 1px solid var(--border-2);
+    color: var(--text);
+    padding: 7px 14px;
+    font-size: 12px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .btn:hover { border-color: var(--gold); background: #181818; }
+  .btn-primary {
+    background: var(--gold);
+    color: #111;
+    border-color: var(--gold);
+    font-weight: 600;
+  }
+  .btn-primary:hover { background: #d4b48a; border-color: #d4b48a; }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-ghost { background: transparent; }
+  .btn-block { width: 100%; }
+
+  /* ============================================================
+     BANNER OFFLINE
+     ============================================================ */
+  .banner-offline {
+    background: var(--red-dim);
+    border: 1px solid var(--red);
+    color: var(--red);
+    padding: 14px 18px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+    font-size: 13px;
+    display: none;
+  }
+  .banner-offline.show { display: block; }
+  .banner-offline h3 {
+    font-size: 13px; margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .banner-offline code {
+    font-family: var(--mono);
+    background: rgba(0,0,0,0.4);
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: var(--text);
+  }
+
+  /* ============================================================
+     SIDEBAR
+     ============================================================ */
+  .filter-group { margin-bottom: 18px; }
+  .filter-label {
+    display: block;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+  }
+  select, input[type="text"], input[type="number"] {
+    width: 100%;
+    background: var(--card);
+    border: 1px solid var(--border-2);
+    color: var(--text);
+    padding: 7px 10px;
+    font-size: 12px;
+    border-radius: 3px;
+    outline: none;
+  }
+  select:focus, input:focus { border-color: var(--gold); }
+  input[type="range"] {
+    width: 100%;
+    -webkit-appearance: none;
+    background: transparent;
+    margin: 4px 0;
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    background: var(--border-2);
+    border-radius: 2px;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    background: var(--gold);
+    border-radius: 50%;
+    margin-top: -5px;
+    cursor: pointer;
+  }
+  .budget-display {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--gold);
+    text-align: right;
+    margin-bottom: 6px;
+  }
+  .preset-row {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;
+    margin-top: 6px;
+  }
+  .preset {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 4px 0;
+    font-size: 10px;
+    font-family: var(--mono);
+    border-radius: 3px;
+  }
+  .preset:hover { border-color: var(--gold); color: var(--gold); }
+  .preset.active { background: var(--gold-dim); border-color: var(--gold); color: var(--gold); }
+
+  .toggle-row {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;
+  }
+  .toggle {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 6px 0;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-radius: 3px;
+  }
+  .toggle:hover { border-color: var(--border-2); }
+  .toggle.active { background: var(--card-2); color: var(--text); border-color: var(--text-dim); }
+  .toggle[data-value="basso"].active { color: var(--green); border-color: var(--green); }
+  .toggle[data-value="medio"].active { color: var(--yellow); border-color: var(--yellow); }
+  .toggle[data-value="alto"].active { color: var(--red); border-color: var(--red); }
+
+  .sidebar-actions {
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+
+  /* ============================================================
+     MAIN AREA
+     ============================================================ */
+  .stats-bar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    border-radius: 4px;
+  }
+  .stat-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 4px;
+  }
+  .stat-value {
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 600;
+  }
+  .stat-value.green { color: var(--green); }
+  .stat-value.yellow { color: var(--yellow); }
+  .stat-value.red { color: var(--red); }
+  .stat-sub { font-size: 11px; color: var(--text-faint); margin-top: 2px; font-family: var(--mono); }
+
+  /* ============================================================
+     CARD ASTA
+     ============================================================ */
+  .results-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 16px;
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.15s;
+  }
+  .card:hover {
+    border-color: var(--gold);
+    transform: translateY(-2px);
+  }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .badges { display: flex; flex-wrap: wrap; gap: 4px; }
+  .badge {
+    font-size: 9px;
+    padding: 3px 7px;
+    border-radius: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border: 1px solid;
+    font-family: var(--mono);
+  }
+  .badge-region { background: var(--card-2); border-color: var(--border-2); color: var(--text-dim); }
+  .badge-type { background: var(--gold-dim); border-color: var(--gold); color: var(--gold); }
+  .badge-risk-basso { background: var(--green-dim); border-color: var(--green); color: var(--green); }
+  .badge-risk-medio { background: var(--yellow-dim); border-color: var(--yellow); color: var(--yellow); }
+  .badge-risk-alto { background: var(--red-dim); border-color: var(--red); color: var(--red); }
+
+  .card-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    margin: 10px 0;
+    line-height: 1.4;
+    min-height: 36px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .card-price-block { margin: 10px 0 8px; }
+  .price-base {
+    font-family: var(--mono);
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.1;
+  }
+  .price-min {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--green);
+    margin-top: 2px;
+  }
+  .price-min::before { content: '↓ '; }
+
+  .card-meta {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 8px;
+    line-height: 1.6;
+  }
+  .card-meta strong { color: var(--text); font-weight: 500; }
+
+  .card-bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .deadline {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .deadline.urgent { color: var(--red); font-weight: 600; }
+  .deadline.warning { color: var(--yellow); }
+
+  .score-ring {
+    width: 48px; height: 48px;
+    position: relative;
+  }
+  .score-ring svg {
+    transform: rotate(-90deg);
+  }
+  .score-ring text {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    fill: var(--text);
+  }
+  .opportunity-strip {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    background: var(--green);
+    color: #052e16;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    display: none;
+  }
+  .card.is-opportunity .opportunity-strip { display: block; }
+  .card.is-opportunity { padding-bottom: 28px; }
+
+  /* ============================================================
+     EMPTY STATE
+     ============================================================ */
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    border: 1px dashed var(--border-2);
+    border-radius: 4px;
+    color: var(--text-dim);
+  }
+  .empty-state h2 {
+    font-size: 16px;
+    color: var(--text);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .empty-state code {
+    font-family: var(--mono);
+    background: var(--card);
+    padding: 8px 14px;
+    border-radius: 3px;
+    display: inline-block;
+    margin: 10px 6px;
+    color: var(--gold);
+    border: 1px solid var(--border-2);
+  }
+  .empty-state p { margin: 8px 0; font-size: 13px; }
+
+  /* ============================================================
+     MODAL
+     ============================================================ */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 20px;
+    backdrop-filter: blur(4px);
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: var(--card);
+    border: 1px solid var(--border-2);
+    border-radius: 6px;
+    max-width: 920px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .modal-header {
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    position: sticky; top: 0;
+    background: var(--card);
+    z-index: 1;
+  }
+  .modal-title { font-size: 15px; line-height: 1.4; padding-right: 20px; }
+  .modal-close {
+    background: transparent; border: none; color: var(--text-dim);
+    font-size: 22px; line-height: 1; padding: 0 4px;
+  }
+  .modal-close:hover { color: var(--red); }
+  .modal-body { padding: 24px; }
+  .modal-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 14px 24px; margin-bottom: 24px;
+  }
+  .modal-field {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+  }
+  .modal-field-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 4px;
+  }
+  .modal-field-value {
+    font-family: var(--mono);
+    font-size: 13px;
+    word-break: break-word;
+  }
+  .modal-actions {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .modal-map {
+    width: 100%; height: 280px;
+    background: var(--card-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    margin-bottom: 18px;
+  }
+  .ai-result {
+    margin-top: 16px;
+    padding: 16px;
+    background: var(--card-2);
+    border: 1px solid var(--gold);
+    border-radius: 4px;
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    display: none;
+  }
+  .ai-result.show { display: block; }
+  .ai-result h4 {
+    color: var(--gold);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 10px;
+  }
+  .spinner {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border: 2px solid var(--text-dim);
+    border-top-color: var(--gold);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ============================================================
+     OCCASIONI TAB
+     ============================================================ */
+  .deal-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    padding: 16px;
+    border-radius: 4px;
+  }
+  .deal-portal {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--gold);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+  }
+  .deal-title { font-size: 13px; margin-bottom: 10px; line-height: 1.4; }
+  .deal-prices {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 8px; margin: 10px 0;
+  }
+  .deal-prices > div {
+    font-family: var(--mono);
+    padding: 6px 8px;
+    background: var(--card-2);
+    border-radius: 3px;
+  }
+  .deal-prices .label {
+    font-size: 9px; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 2px;
+  }
+  .deal-prices .value { font-size: 14px; font-weight: 600; }
+  .deal-margin {
+    margin-top: 10px;
+    padding: 10px;
+    background: var(--green-dim);
+    border-radius: 3px;
+    border-left: 3px solid var(--green);
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--green);
+  }
+  .deal-margin .pct { float: right; }
+
+  /* ============================================================
+     LOADING
+     ============================================================ */
+  .loading-overlay {
+    position: fixed; inset: 0;
+    background: rgba(8,8,8,0.85);
+    z-index: 500;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    color: var(--gold);
+  }
+  .loading-overlay.show { display: flex; }
+
+  /* ============================================================
+     LOGIN
+     ============================================================ */
+  .login-overlay {
+    position: fixed; inset: 0;
+    background: var(--bg);
+    z-index: 2000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .login-overlay.show { display: flex; }
+  .login-card {
+    background: var(--card);
+    border: 1px solid var(--border-2);
+    border-radius: 6px;
+    padding: 32px 28px;
+    width: 100%; max-width: 380px;
+  }
+  .login-logo {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 24px;
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .login-logo .logo-mark { width: 36px; height: 36px; font-size: 16px; }
+  .login-card h2 {
+    font-size: 12px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 18px;
+    font-weight: 400;
+  }
+  .login-card label {
+    display: block;
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+    margin-top: 14px;
+  }
+  .login-card input {
+    width: 100%;
+    background: var(--card-2);
+    border: 1px solid var(--border-2);
+    color: var(--text);
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: var(--mono);
+    border-radius: 3px;
+    outline: none;
+  }
+  .login-card input:focus { border-color: var(--gold); }
+  .login-card button {
+    width: 100%;
+    margin-top: 22px;
+    background: var(--gold);
+    color: #111;
+    border: none;
+    padding: 11px;
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .login-card button:hover { background: #d4b48a; }
+  .login-card button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .login-error {
+    margin-top: 14px;
+    color: var(--red);
+    font-size: 12px;
+    font-family: var(--mono);
+    min-height: 16px;
+  }
+  .btn-logout {
+    background: transparent;
+    border: 1px solid var(--border-2);
+    color: var(--text-dim);
+    padding: 7px 12px;
+    font-size: 12px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .btn-logout:hover { border-color: var(--red); color: var(--red); }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ============ HEADER ============ -->
+  <header class="header">
+    <div class="logo">
+      <div class="logo-mark">⚖</div>
+      <div class="logo-title">
+        ASTE.GIUSTIZIA
+        <small>Procurement Intelligence</small>
+      </div>
+    </div>
+    <div class="tabs">
+      <button class="tab active" data-tab="aste">Aste Giudiziarie</button>
+      <button class="tab" data-tab="occasioni">Occasioni Mercato</button>
+    </div>
+    <div class="header-right">
+      <div class="server-status" id="serverStatus">
+        <span class="dot"></span>
+        <span class="label">Verifica server...</span>
+      </div>
+      <button class="btn btn-primary" id="btnScanNow">Scansiona Ora</button>
+      <button class="btn-logout" id="btnLogout" style="display:none;">Esci</button>
+    </div>
+  </header>
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="filter-group">
+      <label class="filter-label">Regione</label>
+      <select id="filterRegione">
+        <option value="">Tutte le regioni</option>
+      </select>
+    </div>
+
+    <div class="filter-group">
+      <label class="filter-label">Città / Comune</label>
+      <select id="filterComune">
+        <option value="">Tutti i comuni</option>
+      </select>
+    </div>
+
+    <div class="filter-group">
+      <label class="filter-label">Budget massimo</label>
+      <div class="budget-display" id="budgetDisplay">€ 100.000</div>
+      <input type="range" id="filterBudget" min="500" max="500000" step="500" value="100000">
+      <div class="preset-row">
+        <button class="preset" data-budget="10000">10k</button>
+        <button class="preset" data-budget="25000">25k</button>
+        <button class="preset" data-budget="50000">50k</button>
+        <button class="preset" data-budget="100000">100k</button>
+      </div>
+    </div>
+
+    <div class="filter-group">
+      <label class="filter-label">Livello rischio</label>
+      <div class="toggle-row" id="filterRischio">
+        <button class="toggle active" data-value="">Tutti</button>
+        <button class="toggle" data-value="basso">Basso</button>
+        <button class="toggle" data-value="medio">Medio</button>
+        <button class="toggle" data-value="alto">Alto</button>
+      </div>
+    </div>
+
+    <div class="filter-group">
+      <label class="filter-label">Categoria</label>
+      <select id="filterCategoria">
+        <option value="">Tutte</option>
+        <option value="immobile">Immobile</option>
+        <option value="box">Box / Garage</option>
+        <option value="terreno">Terreno</option>
+        <option value="veicolo">Veicolo</option>
+        <option value="altro">Altro</option>
+      </select>
+    </div>
+
+    <div class="filter-group">
+      <label class="filter-label">Stato occupazione</label>
+      <select id="filterOccupazione">
+        <option value="">Tutti</option>
+        <option value="libero">Libero</option>
+        <option value="occupato">Occupato</option>
+      </select>
+    </div>
+
+    <div class="filter-group">
+      <label class="filter-label">Ordinamento</label>
+      <select id="filterOrdine">
+        <option value="score">Score AI (decrescente)</option>
+        <option value="prezzo_asc">Prezzo crescente</option>
+        <option value="prezzo_desc">Prezzo decrescente</option>
+        <option value="scadenza">Scadenza più vicina</option>
+      </select>
+    </div>
+
+    <div class="sidebar-actions">
+      <button class="btn btn-primary btn-block" id="btnUpdate">Aggiorna Dati</button>
+      <button class="btn btn-ghost btn-block" id="btnReset">Reset filtri</button>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+
+    <div class="banner-offline" id="bannerOffline">
+      <h3>⚠ Server Flask non raggiungibile</h3>
+      <p>Avvia il server locale dalla cartella progetto:</p>
+      <p><code>cd C:\Users\Stefano\.claude\trade.fondamentale</code></p>
+      <p><code>.venv\Scripts\python.exe server.py</code></p>
+      <p style="margin-top: 6px;">Server atteso su <code>http://127.0.0.1:5000</code> — endpoint <code>/api/ping</code>.</p>
+    </div>
+
+    <!-- ============ TAB ASTE ============ -->
+    <div id="tabAste">
+      <div class="stats-bar">
+        <div class="stat-card">
+          <div class="stat-label">Totale aste</div>
+          <div class="stat-value" id="statTotal">—</div>
+          <div class="stat-sub" id="statTotalSub">in attesa dati</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Rischio basso</div>
+          <div class="stat-value green" id="statBasso">—</div>
+          <div class="stat-sub">opportunità sicure</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Rischio medio</div>
+          <div class="stat-value yellow" id="statMedio">—</div>
+          <div class="stat-sub">richiedono analisi</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Ultimo aggiornamento</div>
+          <div class="stat-value" id="statUpdate" style="font-size: 14px; line-height: 1.3;">—</div>
+          <div class="stat-sub" id="statUpdateSub">auto-refresh 5 min</div>
+        </div>
+      </div>
+
+      <div id="resultsGrid" class="results-grid"></div>
+      <div id="emptyState" class="empty-state" style="display:none;">
+        <h2>Nessun risultato</h2>
+        <p>Nessuna asta corrisponde ai filtri attivi.</p>
+        <p>Premi <strong>Aggiorna Dati</strong> per lanciare uno scraping completo del portale.</p>
+      </div>
+    </div>
+
+    <!-- ============ TAB OCCASIONI ============ -->
+    <div id="tabOccasioni" style="display: none;">
+      <div class="stats-bar">
+        <div class="stat-card">
+          <div class="stat-label">Occasioni trovate</div>
+          <div class="stat-value" id="statDealTotal">—</div>
+          <div class="stat-sub">su 4 portali</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Margine medio</div>
+          <div class="stat-value green" id="statDealAvg">—</div>
+          <div class="stat-sub">€ guadagno potenziale</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Best deal</div>
+          <div class="stat-value gold" id="statDealBest" style="color: var(--gold);">—</div>
+          <div class="stat-sub" id="statDealBestSub">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Generate da</div>
+          <div class="stat-value" style="font-size: 14px;">Claude AI</div>
+          <div class="stat-sub">claude-sonnet-4-20250514</div>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <button class="btn btn-primary" id="btnGenerateDeals">Genera occasioni con AI</button>
+        <span style="margin-left: 10px; font-size: 11px; color: var(--text-dim); font-family: var(--mono);">
+          Usa i filtri attivi (categoria, budget, regione)
+        </span>
+      </div>
+      <div id="dealsGrid" class="results-grid"></div>
+      <div id="dealsEmpty" class="empty-state">
+        <h2>Nessuna occasione caricata</h2>
+        <p>Imposta categoria + budget nella sidebar e premi <strong>Genera occasioni con AI</strong>.</p>
+        <p>Claude AI analizzerà Subito.it, Vinted, eBay e Wallapop per trovare prodotti sotto valore di mercato.</p>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ============ MODAL DETTAGLIO ============ -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modalTitle">—</div>
+      <button class="modal-close" id="modalClose">×</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div><span class="spinner"></span> Caricamento dati...</div>
+</div>
+
+<!-- ============ LOGIN ============ -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-mark">⚖</div>
+      <div>ASTE.GIUSTIZIA<br><span style="color:var(--text-dim);font-weight:400;font-size:10px;letter-spacing:0.1em;">PROCUREMENT INTELLIGENCE</span></div>
+    </div>
+    <h2>Accesso riservato</h2>
+    <form id="loginForm">
+      <label for="loginUser">Utente</label>
+      <input type="text" id="loginUser" autocomplete="username" required>
+      <label for="loginPass">Password</label>
+      <input type="password" id="loginPass" autocomplete="current-password" required>
+      <button type="submit" id="loginBtn">Entra</button>
+      <div class="login-error" id="loginError"></div>
+    </form>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   CONFIGURAZIONE
+   ===================================================================== */
+const CONFIG = {
+  API_BASE: (() => {
+    // Se la dashboard è servita dal Flask stesso (production via Nginx),
+    // usa origine relativa (cookie + auth funzionano correttamente).
+    if (window.location.protocol.startsWith('http')) {
+      return window.location.origin;
+    }
+    // Sviluppo: dashboard aperta da file:// → puntiamo a localhost.
+    return 'http://127.0.0.1:5000';
+  })(),
+  REFRESH_MS: 5 * 60 * 1000,
+  ANTHROPIC_MODEL: 'claude-sonnet-4-20250514',
+};
+
+// Wrapper fetch che propaga cookie sessione
+async function api(path, opts = {}) {
+  const o = { credentials: 'include', ...opts };
+  o.headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  return fetch(`${CONFIG.API_BASE}${path}`, o);
+}
+
+const REGIONI = [
+  'Abruzzo','Basilicata','Calabria','Campania','Emilia-Romagna',
+  'Friuli-Venezia Giulia','Lazio','Liguria','Lombardia','Marche',
+  'Molise','Piemonte','Puglia','Sardegna','Sicilia',
+  'Toscana','Trentino-Alto Adige','Umbria',"Valle d'Aosta",'Veneto'
+];
+
+const STATE = {
+  serverOnline: false,
+  rawAste: [],
+  enrichedAste: [],
+  deals: [],
+  filters: {
+    regione: '',
+    comune: '',
+    budgetMax: 100000,
+    rischio: '',
+    categoria: '',
+    occupazione: '',
+    ordine: 'score',
+  },
+  refreshTimer: null,
+};
+
+/* =====================================================================
+   UTILITY
+   ===================================================================== */
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
+
+function fmtEuro(n) {
+  if (n == null || isNaN(n)) return '—';
+  return '€ ' + Math.round(n).toLocaleString('it-IT');
+}
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function parseDate(s) {
+  if (!s) return null;
+  // formati comuni: dd/mm/yyyy, dd-mm-yyyy
+  const m = String(s).match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+  if (!m) return null;
+  let yy = parseInt(m[3], 10);
+  if (yy < 100) yy += 2000;
+  const dt = new Date(yy, parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
+function daysUntil(dateStr) {
+  const d = parseDate(dateStr);
+  if (!d) return null;
+  const diff = (d - new Date()) / (1000 * 60 * 60 * 24);
+  return Math.round(diff);
+}
+
+/* =====================================================================
+   CALCOLO SCORE E RISCHIO
+   ===================================================================== */
+function inferCategoria(asta) {
+  const tip = (asta.tipologia || '').toLowerCase();
+  const tit = (asta.titolo || '').toLowerCase();
+  const txt = tip + ' ' + tit;
+  if (/box|garage|posto auto/.test(txt)) return 'box';
+  if (/terreno|agricol|edificab/.test(txt)) return 'terreno';
+  if (/auto|veicolo|motoc|furgone|camion/.test(txt)) return 'veicolo';
+  if (/appartament|villa|cas|locale|negozio|ufficio|immobil|magazzino|capannone/.test(txt)) return 'immobile';
+  return 'altro';
+}
+
+function inferOccupazione(asta) {
+  const s = (asta.stato_occupazione || '').toLowerCase() + ' ' + (asta.titolo || '').toLowerCase();
+  if (/libero|sgombero|disabitato|vuoto/.test(s)) return 'libero';
+  if (/occupato|locato|inquilino|abitato/.test(s)) return 'occupato';
+  return '';
+}
+
+function isQuotaIndivisa(asta) {
+  const s = ((asta.titolo || '') + ' ' + (asta.tipologia || '') + ' ' + (asta.descrizione || '')).toLowerCase();
+  return /quota|indivis|comproprie|nuda proprie|usufrutt/.test(s);
+}
+
+function calcScore(asta) {
+  let score = 50;
+
+  // Prezzo (più basso = più appetibile)
+  const p = asta.prezzo_base;
+  if (p != null) {
+    if (p < 10000) score += 25;
+    else if (p < 25000) score += 18;
+    else if (p < 50000) score += 12;
+    else if (p < 100000) score += 6;
+    else if (p > 300000) score -= 10;
+  }
+
+  // Occupazione
+  if (asta._occupazione === 'libero') score += 20;
+  if (asta._occupazione === 'occupato') score -= 30;
+
+  // Quota indivisa
+  if (asta._quotaIndivisa) score -= 40;
+
+  // Scadenza vicina = urgenza/opportunità
+  const gg = daysUntil(asta.data_vendita);
+  if (gg != null) {
+    if (gg < 0) score -= 25;
+    else if (gg < 7) score += 12;
+    else if (gg < 14) score += 8;
+    else if (gg > 90) score -= 5;
+  }
+
+  // Differenza offerta minima vs base
+  if (asta.prezzo_base && asta.offerta_minima) {
+    const ratio = asta.offerta_minima / asta.prezzo_base;
+    if (ratio < 0.7) score += 8;
+    else if (ratio < 0.8) score += 4;
+  }
+
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function calcRischio(asta) {
+  // alto se: quota indivisa, o occupato, o nuda proprietà
+  if (asta._quotaIndivisa) return 'alto';
+  if (asta._occupazione === 'occupato') return 'alto';
+  // basso se: libero + prezzo accessibile + scadenza ragionevole
+  if (asta._occupazione === 'libero' && (asta.prezzo_base || 0) <= 80000) return 'basso';
+  if (asta._score >= 70) return 'basso';
+  if (asta._score >= 45) return 'medio';
+  return 'medio';
+}
+
+function enrich(aste) {
+  return aste.map((a, idx) => {
+    const e = { ...a };
+    e._id = a.id != null ? a.id : idx;
+    e._categoria = inferCategoria(a);
+    e._occupazione = inferOccupazione(a);
+    e._quotaIndivisa = isQuotaIndivisa(a);
+    e._giorni = daysUntil(a.data_vendita);
+    e._score = calcScore(e);
+    e._rischio = calcRischio(e);
+    return e;
+  });
+}
+
+/* =====================================================================
+   API CALLS
+   ===================================================================== */
+async function apiPing() {
+  try {
+    const ctl = new AbortController();
+    setTimeout(() => ctl.abort(), 3000);
+    const r = await api(`/api/ping`, { signal: ctl.signal });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function apiGetAste(params = {}) {
+  const qs = new URLSearchParams();
+  if (params.regione) qs.set('regione', params.regione);
+  if (params.prezzoMax) qs.set('prezzoMax', params.prezzoMax);
+  if (params.comune) qs.set('comune', params.comune);
+  qs.set('perPage', '200');
+  const r = await api(`/api/aste?${qs.toString()}`);
+  if (r.status === 401) { showLogin(); throw new Error('Non autenticato'); }
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+async function apiScrape(params = {}) {
+  const qs = new URLSearchParams();
+  if (params.regione) qs.set('regione', params.regione);
+  if (params.prezzoMax) qs.set('prezzoMax', params.prezzoMax);
+  const r = await api(`/api/scrape?${qs.toString()}`);
+  if (r.status === 401) { showLogin(); throw new Error('Non autenticato'); }
+  return r.json();
+}
+
+async function apiMe() {
+  try {
+    const r = await api(`/api/me`);
+    if (!r.ok) return { authenticated: false };
+    return await r.json();
+  } catch {
+    return { authenticated: false };
+  }
+}
+
+async function apiLogin(username, password) {
+  const r = await api(`/api/login`, {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  });
+  const data = await r.json().catch(() => ({}));
+  return { ok: r.ok, ...data };
+}
+
+async function apiLogout() {
+  await api(`/api/logout`, { method: 'POST' });
+}
+
+function showLogin() {
+  $('#loginOverlay').classList.add('show');
+  $('#btnLogout').style.display = 'none';
+  setTimeout(() => $('#loginUser').focus(), 50);
+}
+
+function hideLogin() {
+  $('#loginOverlay').classList.remove('show');
+  $('#btnLogout').style.display = '';
+}
+
+/* =====================================================================
+   SERVER STATUS
+   ===================================================================== */
+async function checkServer() {
+  const ok = await apiPing();
+  STATE.serverOnline = ok;
+  const el = $('#serverStatus');
+  if (ok) {
+    el.classList.add('online');
+    el.querySelector('.label').textContent = 'Server online';
+    $('#bannerOffline').classList.remove('show');
+  } else {
+    el.classList.remove('online');
+    el.querySelector('.label').textContent = 'Offline';
+    $('#bannerOffline').classList.add('show');
+  }
+  return ok;
+}
+
+/* =====================================================================
+   LOAD DATA
+   ===================================================================== */
+async function loadAste() {
+  if (!STATE.serverOnline) return;
+  $('#loadingOverlay').classList.add('show');
+  try {
+    const params = {};
+    if (STATE.filters.regione) params.regione = STATE.filters.regione;
+    if (STATE.filters.budgetMax) params.prezzoMax = STATE.filters.budgetMax;
+    if (STATE.filters.comune) params.comune = STATE.filters.comune;
+    const data = await apiGetAste(params);
+    STATE.rawAste = data.aste || [];
+    STATE.lastUpdate = data.timestamp_aggiornamento;
+    STATE.enrichedAste = enrich(STATE.rawAste);
+    populateComuni();
+    renderAll();
+  } catch (err) {
+    console.error('loadAste failed', err);
+    STATE.rawAste = [];
+    STATE.enrichedAste = [];
+    renderAll();
+  } finally {
+    $('#loadingOverlay').classList.remove('show');
+  }
+}
+
+/* =====================================================================
+   FILTRO + RENDER
+   ===================================================================== */
+function applyFilters(list) {
+  let out = list;
+  const f = STATE.filters;
+
+  if (f.regione) out = out.filter(a => (a.regione || '').toLowerCase().includes(f.regione.toLowerCase()));
+  if (f.comune) out = out.filter(a => (a.comune || '').toLowerCase() === f.comune.toLowerCase());
+  if (f.budgetMax) out = out.filter(a => a.prezzo_base == null || a.prezzo_base <= f.budgetMax);
+  if (f.rischio) out = out.filter(a => a._rischio === f.rischio);
+  if (f.categoria) out = out.filter(a => a._categoria === f.categoria);
+  if (f.occupazione) out = out.filter(a => a._occupazione === f.occupazione);
+
+  switch (f.ordine) {
+    case 'score':       out = [...out].sort((a, b) => b._score - a._score); break;
+    case 'prezzo_asc':  out = [...out].sort((a, b) => (a.prezzo_base || 1e15) - (b.prezzo_base || 1e15)); break;
+    case 'prezzo_desc': out = [...out].sort((a, b) => (b.prezzo_base || -1) - (a.prezzo_base || -1)); break;
+    case 'scadenza':    out = [...out].sort((a, b) => {
+      const ag = a._giorni == null ? 9999 : (a._giorni < 0 ? 9999 : a._giorni);
+      const bg = b._giorni == null ? 9999 : (b._giorni < 0 ? 9999 : b._giorni);
+      return ag - bg;
+    }); break;
+  }
+
+  return out;
+}
+
+function populateComuni() {
+  const sel = $('#filterComune');
+  const cur = sel.value;
+  const regFilter = STATE.filters.regione.toLowerCase();
+  const set = new Set();
+  STATE.enrichedAste.forEach(a => {
+    if (regFilter && !(a.regione || '').toLowerCase().includes(regFilter)) return;
+    if (a.comune) set.add(a.comune);
+  });
+  const list = [...set].sort();
+  sel.innerHTML = '<option value="">Tutti i comuni</option>' +
+    list.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  if (list.includes(cur)) sel.value = cur;
+}
+
+function renderStats(list) {
+  $('#statTotal').textContent = list.length;
+  $('#statTotalSub').textContent = `su ${STATE.enrichedAste.length} totali`;
+  $('#statBasso').textContent = list.filter(a => a._rischio === 'basso').length;
+  $('#statMedio').textContent = list.filter(a => a._rischio === 'medio').length;
+  if (STATE.lastUpdate) {
+    const d = new Date(STATE.lastUpdate);
+    $('#statUpdate').textContent = d.toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' });
+    $('#statUpdateSub').textContent = 'auto-refresh 5 min';
+  }
+}
+
+function scoreRingSvg(score) {
+  const r = 18;
+  const c = 2 * Math.PI * r;
+  const off = c - (score / 100) * c;
+  const color = score >= 70 ? 'var(--green)' : score >= 45 ? 'var(--yellow)' : 'var(--red)';
+  return `
+    <svg width="48" height="48" viewBox="0 0 48 48">
+      <circle cx="24" cy="24" r="${r}" stroke="#222" stroke-width="3" fill="none"/>
+      <circle cx="24" cy="24" r="${r}" stroke="${color}" stroke-width="3" fill="none"
+              stroke-dasharray="${c}" stroke-dashoffset="${off}" stroke-linecap="round"/>
+      <text x="24" y="29" text-anchor="middle" transform="rotate(90 24 24)">${score}</text>
+    </svg>`;
+}
+
+function cardHtml(a) {
+  const gg = a._giorni;
+  let deadlineHtml;
+  if (gg == null) deadlineHtml = `<span class="deadline">data n/d</span>`;
+  else if (gg < 0) deadlineHtml = `<span class="deadline">scaduta</span>`;
+  else if (gg < 14) deadlineHtml = `<span class="deadline urgent">⚡ ${gg}gg alla vendita</span>`;
+  else if (gg < 30) deadlineHtml = `<span class="deadline warning">${gg}gg alla vendita</span>`;
+  else deadlineHtml = `<span class="deadline">${gg}gg alla vendita</span>`;
+
+  const isOpp = a._score >= 75 && a._rischio === 'basso';
+  const oppText = isOpp ? `OPPORTUNITÀ — score ${a._score}/100` : '';
+
+  return `
+    <div class="card ${isOpp ? 'is-opportunity' : ''}" data-id="${a._id}">
+      <div class="card-header">
+        <div class="badges">
+          ${a.regione ? `<span class="badge badge-region">${escapeHtml(a.regione)}</span>` : ''}
+          ${a._categoria ? `<span class="badge badge-type">${escapeHtml(a._categoria)}</span>` : ''}
+        </div>
+        <span class="badge badge-risk-${a._rischio}">rischio ${a._rischio}</span>
+      </div>
+      <div class="card-title">${escapeHtml(a.titolo || 'Lotto senza titolo')}</div>
+      <div class="card-price-block">
+        <div class="price-base">${fmtEuro(a.prezzo_base)}</div>
+        ${a.offerta_minima ? `<div class="price-min">offerta min. ${fmtEuro(a.offerta_minima)}</div>` : ''}
+      </div>
+      <div class="card-meta">
+        ${a.tribunale ? `<div>Trib. <strong>${escapeHtml(a.tribunale)}</strong></div>` : ''}
+        ${a.comune ? `<div>${escapeHtml(a.comune)}${a.provincia ? ' (' + escapeHtml(a.provincia) + ')' : ''}</div>` : ''}
+      </div>
+      <div class="card-bottom">
+        ${deadlineHtml}
+        <div class="score-ring">${scoreRingSvg(a._score)}</div>
+      </div>
+      <div class="opportunity-strip">${oppText}</div>
+    </div>`;
+}
+
+function renderAll() {
+  const filtered = applyFilters(STATE.enrichedAste);
+  renderStats(filtered);
+  const grid = $('#resultsGrid');
+  const empty = $('#emptyState');
+  if (filtered.length === 0) {
+    grid.innerHTML = '';
+    empty.style.display = 'block';
+    if (STATE.enrichedAste.length === 0) {
+      empty.innerHTML = `
+        <h2>Nessun dato disponibile</h2>
+        <p>Il server non ha ancora dati o nessun lotto rientra nei criteri.</p>
+        <p>Premi <strong>Aggiorna Dati</strong> per lanciare lo scraper del portale pvp.giustizia.it.</p>
+        <p style="margin-top:14px;">Comando manuale:</p>
+        <code>cd C:\\Users\\Stefano\\.claude\\trade.fondamentale</code>
+        <code>.venv\\Scripts\\python.exe server.py --scrape-on-start</code>`;
+    } else {
+      empty.innerHTML = `
+        <h2>Nessun risultato</h2>
+        <p>Nessuna asta corrisponde ai filtri attivi.</p>
+        <p>Allarga budget, rimuovi filtri rischio/categoria o cambia regione.</p>`;
+    }
+  } else {
+    empty.style.display = 'none';
+    grid.innerHTML = filtered.map(cardHtml).join('');
+    grid.querySelectorAll('.card').forEach(el => {
+      el.addEventListener('click', () => openModal(parseInt(el.dataset.id, 10)));
+    });
+  }
+}
+
+/* =====================================================================
+   MODAL DETTAGLIO
+   ===================================================================== */
+function openModal(id) {
+  const a = STATE.enrichedAste.find(x => x._id === id);
+  if (!a) return;
+  $('#modalTitle').textContent = a.titolo || 'Dettaglio lotto';
+
+  const fields = [
+    ['Tribunale', a.tribunale],
+    ['Comune', a.comune ? a.comune + (a.provincia ? ` (${a.provincia})` : '') : ''],
+    ['Regione', a.regione],
+    ['Tipologia', a.tipologia],
+    ['Categoria inferita', a._categoria],
+    ['Prezzo base', fmtEuro(a.prezzo_base)],
+    ['Offerta minima', fmtEuro(a.offerta_minima)],
+    ['Data vendita', a.data_vendita || '—'],
+    ['Giorni alla vendita', a._giorni == null ? '—' : `${a._giorni} gg`],
+    ['Stato occupazione', a._occupazione || a.stato_occupazione || 'n/d'],
+    ['Quota indivisa', a._quotaIndivisa ? 'Sì ⚠' : 'No'],
+    ['Score AI', `${a._score}/100`],
+    ['Rischio', a._rischio],
+  ];
+
+  const fieldsHtml = fields.filter(([_, v]) => v && v !== '—').map(([k, v]) => `
+    <div class="modal-field">
+      <div class="modal-field-label">${escapeHtml(k)}</div>
+      <div class="modal-field-value">${escapeHtml(v)}</div>
+    </div>`).join('');
+
+  const indirizzo = [a.comune, a.provincia, 'Italia'].filter(Boolean).join(', ');
+  const mapsEmbed = indirizzo
+    ? `https://www.google.com/maps?q=${encodeURIComponent(indirizzo)}&output=embed`
+    : '';
+  const mapsHtml = mapsEmbed
+    ? `<iframe class="modal-map" src="${mapsEmbed}" loading="lazy"></iframe>`
+    : '';
+
+  const pvpHome = 'https://pvp.giustizia.it/pvp/it/homepage.page';
+  const linkLotto = a.link || pvpHome;
+
+  $('#modalBody').innerHTML = `
+    ${mapsHtml}
+    <div class="modal-grid">${fieldsHtml}</div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="btnAiAnalisi">🧠 Analisi AI approfondita</button>
+      <a class="btn" href="${escapeHtml(linkLotto)}" target="_blank" rel="noopener">↗ Apri lotto su pvp.giustizia.it</a>
+      <a class="btn btn-ghost" href="${pvpHome}" target="_blank" rel="noopener">Homepage portale</a>
+    </div>
+    <div class="ai-result" id="aiResult"></div>`;
+
+  $('#btnAiAnalisi').addEventListener('click', () => runAiAnalysis(a));
+  $('#modalOverlay').classList.add('show');
+}
+
+function closeModal() { $('#modalOverlay').classList.remove('show'); }
+
+/* =====================================================================
+   AI ANALYSIS (Anthropic API via fetch direct)
+   ===================================================================== */
+async function getApiKey() {
+  let k = localStorage.getItem('anthropic_api_key');
+  if (!k) {
+    k = prompt('Inserisci la tua API key Anthropic (sk-ant-...). Verrà salvata localmente nel browser.');
+    if (k) localStorage.setItem('anthropic_api_key', k.trim());
+  }
+  return k;
+}
+
+async function callAnthropic(prompt) {
+  const key = await getApiKey();
+  if (!key) throw new Error('API key mancante');
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: CONFIG.ANTHROPIC_MODEL,
+      max_tokens: 1500,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`Anthropic API error ${r.status}: ${t}`);
+  }
+  const data = await r.json();
+  return data.content?.[0]?.text || '(nessuna risposta)';
+}
+
+async function runAiAnalysis(a) {
+  const box = $('#aiResult');
+  box.classList.add('show');
+  box.innerHTML = `<h4>Analisi AI in corso</h4><span class="spinner"></span> Claude sta valutando il lotto...`;
+  const prompt = `Sei un esperto di aste giudiziarie italiane. Analizza il seguente lotto del portale pvp.giustizia.it e fornisci una valutazione professionale in italiano, strutturata in queste sezioni:
+
+1. PROFILO LOTTO (2-3 righe)
+2. PUNTI DI FORZA (bullet)
+3. CRITICITÀ E RISCHI (bullet) — considera quota indivisa, occupazione, prelazione, lite pendente
+4. CHECKLIST DUE DILIGENCE (5 punti pratici)
+5. VALUTAZIONE FINALE (semaforo verde/giallo/rosso + 1 frase)
+6. BUDGET CONSIGLIATO MAX (range stimato)
+
+Dati del lotto:
+- Titolo: ${a.titolo || 'n/d'}
+- Tipologia: ${a.tipologia || 'n/d'} (categoria inferita: ${a._categoria})
+- Tribunale: ${a.tribunale || 'n/d'}
+- Località: ${[a.comune, a.provincia, a.regione].filter(Boolean).join(', ')}
+- Prezzo base: ${fmtEuro(a.prezzo_base)}
+- Offerta minima: ${fmtEuro(a.offerta_minima)}
+- Data vendita: ${a.data_vendita || 'n/d'} (${a._giorni == null ? 'n/d' : a._giorni + ' giorni'})
+- Stato occupazione: ${a._occupazione || a.stato_occupazione || 'n/d'}
+- Quota indivisa: ${a._quotaIndivisa ? 'SI (attenzione)' : 'No'}
+- Score automatico: ${a._score}/100 (rischio ${a._rischio})
+
+Rispondi in modo conciso ma completo, evitando preamboli.`;
+
+  try {
+    const txt = await callAnthropic(prompt);
+    box.innerHTML = `<h4>Analisi AI (claude-sonnet-4)</h4>${escapeHtml(txt)}`;
+  } catch (err) {
+    box.innerHTML = `<h4>Errore analisi AI</h4>${escapeHtml(err.message)}\n\nVerifica la tua API key Anthropic.`;
+  }
+}
+
+/* =====================================================================
+   OCCASIONI MERCATO
+   ===================================================================== */
+async function generateDeals() {
+  const f = STATE.filters;
+  const catLabel = f.categoria || 'tutte le categorie';
+  const regLabel = f.regione || 'tutta Italia';
+  const budgetLabel = fmtEuro(f.budgetMax);
+
+  const prompt = `Sei un esperto reseller del mercato dell'usato italiano. Genera 8 esempi REALISTICI di occasioni di acquisto da riveQuesto vendere con profitto, scegliendo dai portali Subito.it, Vinted, eBay e Wallapop.
+
+Categoria target: ${catLabel}
+Area geografica: ${regLabel}
+Budget massimo: ${budgetLabel}
+
+Per ogni occasione restituisci JSON con questa struttura ESATTA (array di 8 oggetti):
+{
+  "portale": "Subito.it" | "Vinted" | "eBay" | "Wallapop",
+  "titolo": "titolo prodotto realistico",
+  "categoria": "categoria",
+  "prezzo_trovato": numero euro (intero),
+  "valore_mercato": numero euro (intero, > prezzo_trovato),
+  "note": "1 frase su perché è un'occasione"
+}
+
+Distribuisci i portali in modo equilibrato. Margini realistici 15-50%. RISPONDI SOLO CON IL JSON, niente testo prima o dopo, niente markdown.`;
+
+  const btn = $('#btnGenerateDeals');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Generazione...';
+  $('#dealsEmpty').innerHTML = '<h2>Generazione in corso</h2><p>Claude AI sta scrivendo 8 occasioni...</p>';
+
+  try {
+    const txt = await callAnthropic(prompt);
+    const jsonStart = txt.indexOf('[');
+    const jsonEnd = txt.lastIndexOf(']');
+    if (jsonStart < 0) throw new Error('JSON non trovato nella risposta');
+    const arr = JSON.parse(txt.slice(jsonStart, jsonEnd + 1));
+    STATE.deals = arr.map((d, i) => ({
+      ...d,
+      _id: i,
+      margine_eur: (d.valore_mercato || 0) - (d.prezzo_trovato || 0),
+      margine_pct: d.prezzo_trovato ? Math.round(((d.valore_mercato - d.prezzo_trovato) / d.prezzo_trovato) * 100) : 0,
+    }));
+    renderDeals();
+  } catch (err) {
+    $('#dealsEmpty').innerHTML = `<h2>Errore generazione</h2><p>${escapeHtml(err.message)}</p><p>Verifica API key Anthropic in localStorage.</p>`;
+    $('#dealsEmpty').style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Genera occasioni con AI';
+  }
+}
+
+function renderDeals() {
+  const list = STATE.deals;
+  if (!list.length) {
+    $('#dealsGrid').innerHTML = '';
+    $('#dealsEmpty').style.display = 'block';
+    return;
+  }
+  $('#dealsEmpty').style.display = 'none';
+  $('#statDealTotal').textContent = list.length;
+  const avg = Math.round(list.reduce((s, d) => s + d.margine_eur, 0) / list.length);
+  $('#statDealAvg').textContent = fmtEuro(avg);
+  const best = [...list].sort((a, b) => b.margine_pct - a.margine_pct)[0];
+  $('#statDealBest').textContent = `${best.margine_pct}%`;
+  $('#statDealBestSub').textContent = best.titolo.slice(0, 32);
+
+  $('#dealsGrid').innerHTML = list.map(d => `
+    <div class="deal-card">
+      <div class="deal-portal">${escapeHtml(d.portale)}</div>
+      <div class="deal-title">${escapeHtml(d.titolo)}</div>
+      <div class="deal-prices">
+        <div>
+          <div class="label">Prezzo trovato</div>
+          <div class="value">${fmtEuro(d.prezzo_trovato)}</div>
+        </div>
+        <div>
+          <div class="label">Valore mercato</div>
+          <div class="value" style="color: var(--gold);">${fmtEuro(d.valore_mercato)}</div>
+        </div>
+      </div>
+      <div class="deal-margin">
+        +${fmtEuro(d.margine_eur)}<span class="pct">${d.margine_pct}%</span>
+      </div>
+      <div style="font-size: 11px; color: var(--text-dim); margin-top: 10px; line-height: 1.5;">
+        ${escapeHtml(d.note || '')}
+      </div>
+    </div>`).join('');
+}
+
+/* =====================================================================
+   FILTRI & EVENT BINDING
+   ===================================================================== */
+function bindEvents() {
+  // Popola regioni
+  const selReg = $('#filterRegione');
+  selReg.innerHTML = '<option value="">Tutte le regioni</option>' +
+    REGIONI.map(r => `<option value="${r}">${r}</option>`).join('');
+
+  selReg.addEventListener('change', e => {
+    STATE.filters.regione = e.target.value;
+    STATE.filters.comune = '';
+    populateComuni();
+    renderAll();
+  });
+  $('#filterComune').addEventListener('change', e => {
+    STATE.filters.comune = e.target.value;
+    renderAll();
+  });
+  $('#filterBudget').addEventListener('input', e => {
+    STATE.filters.budgetMax = parseInt(e.target.value, 10);
+    $('#budgetDisplay').textContent = fmtEuro(STATE.filters.budgetMax);
+    $$('.preset').forEach(p => p.classList.toggle('active', parseInt(p.dataset.budget, 10) === STATE.filters.budgetMax));
+    renderAll();
+  });
+  $$('.preset').forEach(b => {
+    b.addEventListener('click', () => {
+      const v = parseInt(b.dataset.budget, 10);
+      $('#filterBudget').value = v;
+      STATE.filters.budgetMax = v;
+      $('#budgetDisplay').textContent = fmtEuro(v);
+      $$('.preset').forEach(p => p.classList.toggle('active', p === b));
+      renderAll();
+    });
+  });
+  $$('#filterRischio .toggle').forEach(t => {
+    t.addEventListener('click', () => {
+      $$('#filterRischio .toggle').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      STATE.filters.rischio = t.dataset.value;
+      renderAll();
+    });
+  });
+  $('#filterCategoria').addEventListener('change', e => { STATE.filters.categoria = e.target.value; renderAll(); });
+  $('#filterOccupazione').addEventListener('change', e => { STATE.filters.occupazione = e.target.value; renderAll(); });
+  $('#filterOrdine').addEventListener('change', e => { STATE.filters.ordine = e.target.value; renderAll(); });
+
+  $('#btnUpdate').addEventListener('click', async () => {
+    if (!STATE.serverOnline) { alert('Server offline — avvia server.py'); return; }
+    const btn = $('#btnUpdate');
+    btn.disabled = true; btn.textContent = 'Aggiornamento...';
+    try {
+      await apiScrape({
+        regione: STATE.filters.regione || null,
+        prezzoMax: STATE.filters.budgetMax,
+      });
+      setTimeout(() => loadAste(), 1500);
+    } catch (e) { console.error(e); }
+    finally { btn.disabled = false; btn.textContent = 'Aggiorna Dati'; }
+  });
+
+  $('#btnScanNow').addEventListener('click', async () => {
+    if (!STATE.serverOnline) { alert('Server offline — avvia server.py'); return; }
+    await apiScrape({ prezzoMax: STATE.filters.budgetMax });
+    setTimeout(() => loadAste(), 1500);
+  });
+
+  $('#btnReset').addEventListener('click', () => {
+    STATE.filters = { regione: '', comune: '', budgetMax: 100000, rischio: '', categoria: '', occupazione: '', ordine: 'score' };
+    $('#filterRegione').value = '';
+    $('#filterComune').value = '';
+    $('#filterBudget').value = 100000;
+    $('#budgetDisplay').textContent = '€ 100.000';
+    $('#filterCategoria').value = '';
+    $('#filterOccupazione').value = '';
+    $('#filterOrdine').value = 'score';
+    $$('#filterRischio .toggle').forEach((t, i) => t.classList.toggle('active', i === 0));
+    $$('.preset').forEach(p => p.classList.toggle('active', parseInt(p.dataset.budget, 10) === 100000));
+    populateComuni();
+    renderAll();
+  });
+
+  $('#modalClose').addEventListener('click', closeModal);
+  $('#modalOverlay').addEventListener('click', e => { if (e.target.id === 'modalOverlay') closeModal(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+  $$('.tab').forEach(t => {
+    t.addEventListener('click', () => {
+      $$('.tab').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      const target = t.dataset.tab;
+      $('#tabAste').style.display = target === 'aste' ? 'block' : 'none';
+      $('#tabOccasioni').style.display = target === 'occasioni' ? 'block' : 'none';
+    });
+  });
+
+  $('#btnGenerateDeals').addEventListener('click', generateDeals);
+
+  // preset 100k attivo di default
+  $$('.preset').forEach(p => p.classList.toggle('active', parseInt(p.dataset.budget, 10) === 100000));
+
+  // login
+  $('#loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('#loginBtn');
+    const err = $('#loginError');
+    err.textContent = '';
+    btn.disabled = true; btn.textContent = 'Verifica...';
+    try {
+      const res = await apiLogin($('#loginUser').value.trim(), $('#loginPass').value);
+      if (res.ok) {
+        $('#loginPass').value = '';
+        hideLogin();
+        await loadAste();
+      } else {
+        err.textContent = res.error || 'Credenziali non valide';
+      }
+    } catch (ex) {
+      err.textContent = 'Errore di rete: ' + ex.message;
+    } finally {
+      btn.disabled = false; btn.textContent = 'Entra';
+    }
+  });
+
+  // logout
+  $('#btnLogout').addEventListener('click', async () => {
+    await apiLogout();
+    STATE.rawAste = [];
+    STATE.enrichedAste = [];
+    renderAll();
+    showLogin();
+  });
+}
+
+/* =====================================================================
+   AUTO REFRESH
+   ===================================================================== */
+function startAutoRefresh() {
+  if (STATE.refreshTimer) clearInterval(STATE.refreshTimer);
+  STATE.refreshTimer = setInterval(async () => {
+    const ok = await checkServer();
+    if (ok) loadAste();
+  }, CONFIG.REFRESH_MS);
+}
+
+/* =====================================================================
+   BOOT
+   ===================================================================== */
+async function init() {
+  bindEvents();
+  const ok = await checkServer();
+  if (!ok) { renderAll(); return; }
+  // Verifica sessione esistente
+  const auth = await apiMe();
+  if (auth.authenticated) {
+    hideLogin();
+    await loadAste();
+  } else {
+    showLogin();
+  }
+  startAutoRefresh();
+}
+
+init();
+</script>
+</body>
+</html>
