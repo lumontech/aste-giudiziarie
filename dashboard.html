@@ -1069,6 +1069,10 @@ function isQuotaIndivisa(asta) {
 }
 
 function calcScore(asta) {
+  // Se Apify fornisce un investment_score nativo, usalo (più accurato)
+  if (asta.investment_score != null && !isNaN(asta.investment_score)) {
+    return Math.max(0, Math.min(100, Math.round(asta.investment_score)));
+  }
   let score = 50;
 
   // Prezzo (più basso = più appetibile)
@@ -1325,8 +1329,10 @@ function cardHtml(a) {
   else if (gg < 30) deadlineHtml = `<span class="deadline warning">${gg}gg alla vendita</span>`;
   else deadlineHtml = `<span class="deadline">${gg}gg alla vendita</span>`;
 
-  const isOpp = a._score >= 75 && a._rischio === 'basso';
-  const oppText = isOpp ? `OPPORTUNITÀ — score ${a._score}/100` : '';
+  const isOpp = a.is_opportunity === true || (a._score >= 75 && a._rischio === 'basso');
+  const oppText = isOpp
+    ? (a.rank_reason ? `OPPORTUNITÀ — ${a.rank_reason}` : `OPPORTUNITÀ — score ${a._score}/100`)
+    : '';
 
   return `
     <div class="card ${isOpp ? 'is-opportunity' : ''}" data-id="${a._id}">
@@ -1345,6 +1351,8 @@ function cardHtml(a) {
       <div class="card-meta">
         ${a.tribunale ? `<div>Trib. <strong>${escapeHtml(a.tribunale)}</strong></div>` : ''}
         ${a.comune ? `<div>${escapeHtml(a.comune)}${a.provincia ? ' (' + escapeHtml(a.provincia) + ')' : ''}</div>` : ''}
+        ${a.mq_stimati ? `<div>${a.mq_stimati} m² · <strong>€ ${Math.round(a.prezzo_mq || 0).toLocaleString('it-IT')}/m²</strong></div>` : ''}
+        ${a.rank_reason ? `<div style="color: var(--gold); font-size: 10px; margin-top: 4px;">${escapeHtml(a.rank_reason)}</div>` : ''}
       </div>
       <div class="card-bottom">
         ${deadlineHtml}
@@ -1401,11 +1409,17 @@ function openModal(id) {
     ['Categoria inferita', a._categoria],
     ['Prezzo base', fmtEuro(a.prezzo_base)],
     ['Offerta minima', fmtEuro(a.offerta_minima)],
+    ['Superficie stimata', a.mq_stimati ? `${a.mq_stimati} m²` : ''],
+    ['Prezzo al m²', a.prezzo_mq ? fmtEuro(a.prezzo_mq) + '/m²' : ''],
     ['Data vendita', a.data_vendita || '—'],
     ['Giorni alla vendita', a._giorni == null ? '—' : `${a._giorni} gg`],
     ['Stato occupazione', a._occupazione || a.stato_occupazione || 'n/d'],
     ['Quota indivisa', a._quotaIndivisa ? 'Sì ⚠' : 'No'],
+    ['Foto disponibili', a.has_foto ? 'Sì' : 'No'],
+    ['Planimetrie disponibili', a.has_planimetrie ? 'Sì' : 'No'],
     ['Score AI', `${a._score}/100`],
+    ['Investment score Apify', a.investment_score != null ? `${Math.round(a.investment_score)}/100` : ''],
+    ['Motivazione opportunità', a.rank_reason || ''],
     ['Rischio', a._rischio],
   ];
 
