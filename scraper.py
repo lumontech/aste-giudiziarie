@@ -41,7 +41,7 @@ APIFY_ACTOR = os.environ.get(
 )
 APIFY_BASE = "https://api.apify.com/v2"
 APIFY_TIMEOUT = float(os.environ.get("APIFY_TIMEOUT", "240"))  # secondi
-APIFY_MAX_ITEMS = int(os.environ.get("APIFY_MAX_ITEMS", "300"))  # per regione
+APIFY_MAX_ITEMS = int(os.environ.get("APIFY_MAX_ITEMS", "1000"))  # per regione
 
 # Tutte le regioni italiane
 REGIONI_ITALIANE = [
@@ -194,48 +194,29 @@ async def main(
     aste_per_regione: dict[str, int] = {}
     errori: dict[str, str] = {}
 
+    # Se "regioni" è None o lista vuota → cicla TUTTE le 20 regioni italiane
+    target_regioni = regioni if regioni else list(REGIONI_ITALIANE)
+    logger.info("Cicleremo %d regioni", len(target_regioni))
+
     async with httpx.AsyncClient() as client:
-        if regioni:
-            # Una chiamata per regione (filtraggio server-side)
-            for i, reg in enumerate(regioni, 1):
-                logger.info("[%d/%d] %s", i, len(regioni), reg)
-                try:
-                    items = await _call_apify(
-                        client,
-                        regione=reg,
-                        prezzo_min=prezzo_min,
-                        prezzo_max=prezzo_max,
-                        property_type=tipologia,
-                    )
-                    norm = [_normalize(a, len(aste_all) + j, regione_default=reg) for j, a in enumerate(items)]
-                    aste_all.extend(norm)
-                    aste_per_regione[reg] = len(norm)
-                    logger.info("  ✓ %s: %d aste", reg, len(norm))
-                except Exception as e:
-                    errori[reg] = str(e)
-                    aste_per_regione[reg] = 0
-                    logger.error("  ✗ %s: %s", reg, e)
-        else:
-            # Scrape nazionale singolo (1 sola chiamata Apify)
-            logger.info("Scraping nazionale singolo (max %d items)", APIFY_MAX_ITEMS * 2)
+        for i, reg in enumerate(target_regioni, 1):
+            logger.info("[%d/%d] %s", i, len(target_regioni), reg)
             try:
                 items = await _call_apify(
                     client,
+                    regione=reg,
                     prezzo_min=prezzo_min,
                     prezzo_max=prezzo_max,
                     property_type=tipologia,
-                    max_items=APIFY_MAX_ITEMS * 5,  # nazionale → alza il limite
                 )
-                norm = [_normalize(a, j) for j, a in enumerate(items)]
+                norm = [_normalize(a, len(aste_all) + j, regione_default=reg) for j, a in enumerate(items)]
                 aste_all.extend(norm)
-                # Raggruppa per regione
-                for a in norm:
-                    r = a.get("regione") or "Sconosciuta"
-                    aste_per_regione[r] = aste_per_regione.get(r, 0) + 1
-                logger.info("  ✓ Nazionale: %d aste", len(norm))
+                aste_per_regione[reg] = len(norm)
+                logger.info("  ✓ %s: %d aste", reg, len(norm))
             except Exception as e:
-                errori["__nazionale__"] = str(e)
-                logger.error("  ✗ Nazionale: %s", e)
+                errori[reg] = str(e)
+                aste_per_regione[reg] = 0
+                logger.error("  ✗ %s: %s", reg, e)
 
     duration = (datetime.now() - start).total_seconds()
 

@@ -1155,7 +1155,7 @@ async function apiGetAste(params = {}) {
   if (params.regione) qs.set('regione', params.regione);
   if (params.prezzoMax) qs.set('prezzoMax', params.prezzoMax);
   if (params.comune) qs.set('comune', params.comune);
-  qs.set('perPage', '200');
+  qs.set('perPage', '2000');
   const r = await api(`/api/aste?${qs.toString()}`);
   if (r.status === 401) { showLogin(); throw new Error('Non autenticato'); }
   if (!r.ok) throw new Error(`HTTP ${r.status}`);

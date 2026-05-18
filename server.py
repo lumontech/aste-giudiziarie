@@ -359,7 +359,7 @@ def get_aste():
         prezzo_max = float(prezzo_max_raw) if prezzo_max_raw else None
         prezzo_min = float(prezzo_min_raw) if prezzo_min_raw else None
         page = max(1, int(request.args.get("page", 1)))
-        per_page = min(200, max(1, int(request.args.get("perPage", 50))))
+        per_page = min(5000, max(1, int(request.args.get("perPage", 200))))
     except (ValueError, TypeError) as exc:
         return jsonify({"error": f"Parametro non valido: {exc}"}), 400
 
