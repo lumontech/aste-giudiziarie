@@ -68,20 +68,33 @@ def _safe_float(v) -> Optional[float]:
         return None
 
 
-def _normalize(raw: dict, idx: int) -> dict:
+def _format_data_vendita(iso: Optional[str]) -> str:
+    """Converte ISO 2026-07-08T16:30:00 -> 08/07/2026."""
+    if not iso:
+        return ""
+    try:
+        d = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        return d.strftime("%d/%m/%Y")
+    except (ValueError, TypeError):
+        return str(iso)
+
+
+def _normalize(raw: dict, idx: int, regione_default: Optional[str] = None) -> dict:
     """Adatta un record Apify al formato atteso da dashboard.html."""
     prezzo_base = _safe_float(raw.get("prezzo_base") or raw.get("priceBase"))
     offerta_min = _safe_float(raw.get("offerta_minima") or raw.get("minOffer"))
 
     return {
-        "id": raw.get("id") or raw.get("idLotto") or idx,
+        "id": raw.get("id_lotto") or raw.get("idLotto") or raw.get("id") or idx,
+        "id_asta": raw.get("id_asta"),
         "titolo": (
             raw.get("titolo")
             or raw.get("descrizione_breve")
             or raw.get("title")
             or f"Lotto #{idx}"
         ),
-        "tipologia": raw.get("tipologia") or raw.get("propertyType") or "",
+        "descrizione": raw.get("descrizione") or "",
+        "tipologia": raw.get("categoria") or raw.get("tipologia") or raw.get("propertyType") or "",
         "prezzo_base": prezzo_base,
         "prezzo_base_raw": f"€ {prezzo_base:,.0f}" if prezzo_base else None,
         "offerta_minima": offerta_min,
@@ -89,11 +102,17 @@ def _normalize(raw: dict, idx: int) -> dict:
         "tribunale": raw.get("tribunale") or "",
         "comune": raw.get("comune") or "",
         "provincia": raw.get("provincia") or "",
-        "regione": raw.get("regione") or "",
-        "data_vendita": raw.get("data_udienza") or raw.get("data_vendita") or "",
+        # regione: Apify non la restituisce, usiamo il filtro che abbiamo passato
+        "regione": raw.get("regione") or regione_default or "",
+        "indirizzo": raw.get("indirizzo") or "",
+        "data_vendita": _format_data_vendita(raw.get("data_udienza") or raw.get("data_vendita")),
+        "data_pubblicazione": _format_data_vendita(raw.get("data_pubblicazione")),
         "stato_occupazione": raw.get("stato_occupazione") or "",
+        "stato": raw.get("stato") or "",
+        "vendita_telematica": raw.get("vendita_telematica"),
         "link": raw.get("url") or raw.get("link") or "",
-        # campi aggiuntivi propri di Apify (utili a dashboard.html)
+        "image": raw.get("image"),
+        # campi specifici Apify
         "mq_stimati": raw.get("mq_stimati"),
         "prezzo_mq": raw.get("prezzo_mq"),
         "days_to_auction": raw.get("days_to_auction"),
@@ -102,8 +121,6 @@ def _normalize(raw: dict, idx: int) -> dict:
         "rank_reason": raw.get("rank_reason"),
         "has_foto": raw.get("has_foto"),
         "has_planimetrie": raw.get("has_planimetrie"),
-        # raw per debug
-        "_raw": {k: v for k, v in raw.items() if k not in ("html", "raw_html")},
     }
 
 
@@ -190,7 +207,7 @@ async def main(
                         prezzo_max=prezzo_max,
                         property_type=tipologia,
                     )
-                    norm = [_normalize(a, len(aste_all) + j) for j, a in enumerate(items)]
+                    norm = [_normalize(a, len(aste_all) + j, regione_default=reg) for j, a in enumerate(items)]
                     aste_all.extend(norm)
                     aste_per_regione[reg] = len(norm)
                     logger.info("  ✓ %s: %d aste", reg, len(norm))
