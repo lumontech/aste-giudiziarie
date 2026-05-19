@@ -800,12 +800,26 @@
     <div class="filter-group">
       <label class="filter-label">Categoria</label>
       <select id="filterCategoria">
-        <option value="">Tutte</option>
-        <option value="immobile">Immobile</option>
-        <option value="box">Box / Garage</option>
-        <option value="terreno">Terreno</option>
-        <option value="veicolo">Veicolo</option>
-        <option value="altro">Altro</option>
+        <option value="">Tutte le categorie</option>
+        <optgroup label="── Immobili ──">
+          <option value="immobile">Immobile residenziale</option>
+          <option value="commerciale">Immobile commerciale</option>
+          <option value="industriale">Immobile industriale</option>
+          <option value="sportivo">Impianto sportivo</option>
+          <option value="altro_immobile">Box / Garage / Posto auto / Terreno / Altro</option>
+        </optgroup>
+        <optgroup label="── Mobili ──">
+          <option value="veicolo">Autoveicoli e cicli</option>
+          <option value="nautica">Nautica (barche)</option>
+          <option value="macchinari">Macchinari, utensili</option>
+          <option value="informatica">Informatica, elettronica</option>
+          <option value="arredamento">Arredamento, elettrodomestici</option>
+          <option value="arte">Arte, oreficeria, antiquariato</option>
+          <option value="abbigliamento">Abbigliamento, calzature</option>
+          <option value="quote">Quote societarie e crediti</option>
+          <option value="diritti">Diritti, marchi, brevetti</option>
+          <option value="altro_mobile">Altro mobiliare</option>
+        </optgroup>
       </select>
     </div>
 
@@ -1046,13 +1060,18 @@ function daysUntil(dateStr) {
    CALCOLO SCORE E RISCHIO
    ===================================================================== */
 function inferCategoria(asta) {
+  // Se il server fornisce tipologia_filter (mapping ufficiale idTipologia), usalo
+  if (asta.tipologia_filter) return asta.tipologia_filter;
+  // Fallback: inferisci da titolo/tipologia
   const tip = (asta.tipologia || '').toLowerCase();
   const tit = (asta.titolo || '').toLowerCase();
   const txt = tip + ' ' + tit;
-  if (/box|garage|posto auto/.test(txt)) return 'box';
-  if (/terreno|agricol|edificab/.test(txt)) return 'terreno';
+  if (/box|garage|posto auto/.test(txt)) return 'altro_immobile';
+  if (/terreno|agricol|edificab/.test(txt)) return 'altro_immobile';
   if (/auto|veicolo|motoc|furgone|camion/.test(txt)) return 'veicolo';
-  if (/appartament|villa|cas|locale|negozio|ufficio|immobil|magazzino|capannone/.test(txt)) return 'immobile';
+  if (/barca|imbarcaz|nautic/.test(txt)) return 'nautica';
+  if (/appartament|villa|cas|locale|magazzino|capannone/.test(txt)) return 'immobile';
+  if (/negozio|ufficio|bottega|esercizio/.test(txt)) return 'commerciale';
   return 'altro';
 }
 

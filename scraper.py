@@ -59,6 +59,30 @@ REGIONI_ITALIANE = [
 # Back-compat
 REGIONE_CODICE: dict[str, str] = {r: r.lower().replace(" ", "-") for r in REGIONI_ITALIANE}
 
+# Mapping idTipologia → label leggibile (dal portale astegiudiziarie.it)
+# genere=1 = immobiliari, genere=2 = mobili
+TIPOLOGIA_LABELS = {
+    1:  ("Immobile residenziale",                       "immobile"),
+    2:  ("Immobile commerciale",                        "commerciale"),
+    3:  ("Immobile industriale",                        "industriale"),
+    4:  ("Impianto sportivo",                           "sportivo"),
+    5:  ("Box / Garage / Posto auto / Terreno / Altro", "altro_immobile"),
+    6:  ("Autoveicoli e cicli",                         "veicolo"),
+    7:  ("Nautica",                                     "nautica"),
+    8:  ("Macchinari, utensili, materie prime",         "macchinari"),
+    9:  ("Informatica e elettronica",                   "informatica"),
+    10: ("Arredamento, elettrodomestici",               "arredamento"),
+    11: ("Arte, oreficeria, antiquariato",              "arte"),
+    12: ("Abbigliamento e calzature",                   "abbigliamento"),
+    13: ("Cancelleria, libri, riviste",                 "cancelleria"),
+    14: ("Alimentari",                                  "alimentari"),
+    15: ("Materiale sanitario",                         "sanitario"),
+    16: ("Animali",                                     "animali"),
+    17: ("Quote societarie e crediti",                  "quote"),
+    18: ("Diritti, marchi, brevetti",                   "diritti"),
+    19: ("Altra categoria mobiliare",                   "altro_mobile"),
+}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -270,10 +294,21 @@ def _normalize(raw: dict, idx: int, regione_default: Optional[str] = None) -> di
     descr = raw.get("descrizione") or ""
     categoria = (raw.get("categoria") or "").strip()
     titolo = categoria.title() if categoria else descr[:60]
+    id_tipologia = raw.get("idTipologia")
 
-    # Parsing mq + prezzo_mq dalla descrizione (parità con Apify)
-    mq = _extract_mq(descr)
-    prezzo_mq = round(prezzo_base / mq, 2) if (mq and prezzo_base and mq > 0) else None
+    # Mapping idTipologia → label leggibile + categoria normalizzata per filtro dashboard
+    tipologia_label, categoria_norm = TIPOLOGIA_LABELS.get(
+        id_tipologia, ("Sconosciuta", "altro")
+    )
+    # È mobile (auto/nautica/ecc.)? — sopra a id=5 sono tutti mobili
+    is_mobile = id_tipologia is not None and id_tipologia >= 6
+
+    # Parsing mq + prezzo_mq dalla descrizione (solo per immobiliari)
+    mq = None
+    prezzo_mq = None
+    if not is_mobile:
+        mq = _extract_mq(descr)
+        prezzo_mq = round(prezzo_base / mq, 2) if (mq and prezzo_base and mq > 0) else None
 
     semaforo = raw.get("semaforo") or {}
     stato = (semaforo.get("descrizione") or "").strip()
@@ -287,7 +322,11 @@ def _normalize(raw: dict, idx: int, regione_default: Optional[str] = None) -> di
         "id_asta": raw.get("idAsta"),
         "titolo": titolo,
         "descrizione": descr,
-        "tipologia": raw.get("tipologia") or categoria,
+        "tipologia": raw.get("tipologia") or tipologia_label,
+        "tipologia_label": tipologia_label,
+        "tipologia_id": id_tipologia,
+        "tipologia_filter": categoria_norm,
+        "is_mobile": is_mobile,
         "categoria_api": categoria,
         "prezzo_base": prezzo_base,
         "prezzo_base_raw": f"€ {prezzo_base:,.0f}" if prezzo_base else None,
