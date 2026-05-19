@@ -117,6 +117,32 @@ def _detect_quota_indivisa(text: str) -> bool:
     return bool(re.search(r"quota\s+indivis|comproprie|nuda\s+propriet|usufrutt", t))
 
 
+# Regex pattern per estrarre metri quadri dalla descrizione
+_MQ_PATTERNS = [
+    r"\b(?:di|circa|complessiv[ai]|superficie|estensione|mq)\s*(?:di\s+)?(\d{1,5}(?:[.,]\d{1,2})?)\s*(?:mq|m²|m2|m\.q\.|metri\s*quadr)",
+    r"\b(\d{1,5}(?:[.,]\d{1,2})?)\s*(?:mq|m²|m2|m\.q\.|metri\s*quadr)",
+    r"\b(\d{1,5})\s*mq\b",
+    r"\bsuperficie\s*(?:lord[ai]|util[ei]|comm)?\s*[:\s=di]+\s*(\d{1,5}(?:[.,]\d{1,2})?)",
+]
+
+def _extract_mq(text: str) -> Optional[float]:
+    """Estrai i metri quadri dalla descrizione."""
+    if not text:
+        return None
+    t = text.lower()
+    for pattern in _MQ_PATTERNS:
+        for m in re.finditer(pattern, t, re.I):
+            try:
+                val = m.group(1).replace(",", ".")
+                # ignora valori troppo bassi o troppo alti (probabilmente non sono mq)
+                v = float(val)
+                if 5 <= v <= 50000:
+                    return v
+            except (ValueError, TypeError):
+                continue
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Costruzione body Search/Map (schema esatto frontend)
 # ---------------------------------------------------------------------------
@@ -210,12 +236,22 @@ def _calc_score(asta: dict) -> int:
     if asta.get("hasFoto"): score += 3
     if asta.get("hasPlanimetrie"): score += 3
 
+    # Bonus €/m² basso (come Apify "rank_reason: €/mq basso")
+    pmq = asta.get("prezzo_mq")
+    if pmq is not None:
+        if pmq < 500: score += 15
+        elif pmq < 1000: score += 10
+        elif pmq < 1500: score += 5
+        elif pmq > 4000: score -= 5
+
     return max(0, min(100, score))
 
 
 def _calc_rank_reason(asta: dict, score: int) -> str:
     parts = []
     p = asta.get("prezzo_base") or 0
+    pmq = asta.get("prezzo_mq")
+    if pmq and pmq < 1000: parts.append("€/mq basso")
     if 0 < p < 25000: parts.append("prezzo basso")
     elif p < 50000: parts.append("prezzo accessibile")
     gg = asta.get("days_to_auction")
@@ -234,6 +270,10 @@ def _normalize(raw: dict, idx: int, regione_default: Optional[str] = None) -> di
     descr = raw.get("descrizione") or ""
     categoria = (raw.get("categoria") or "").strip()
     titolo = categoria.title() if categoria else descr[:60]
+
+    # Parsing mq + prezzo_mq dalla descrizione (parità con Apify)
+    mq = _extract_mq(descr)
+    prezzo_mq = round(prezzo_base / mq, 2) if (mq and prezzo_base and mq > 0) else None
 
     semaforo = raw.get("semaforo") or {}
     stato = (semaforo.get("descrizione") or "").strip()
@@ -276,9 +316,9 @@ def _normalize(raw: dict, idx: int, regione_default: Optional[str] = None) -> di
         "anno_procedura": raw.get("annoProcedura"),
         "latitudine": raw.get("latitudine"),
         "longitudine": raw.get("longitudine"),
-        # campi non disponibili da questa API (mantenuti per compat dashboard)
-        "mq_stimati": None,
-        "prezzo_mq": None,
+        # mq parsati dalla descrizione (parità con Apify)
+        "mq_stimati": mq,
+        "prezzo_mq": prezzo_mq,
     }
     norm["days_to_auction"] = days
     norm["investment_score"] = _calc_score(norm)
