@@ -179,9 +179,10 @@ def _build_search_params(
     prezzo_max: Optional[float] = None,
     id_tipologie: Optional[list] = None,
     id_tribunale: Optional[int] = None,
+    tipo_ricerca: int = 0,
 ) -> dict:
     return {
-        "tipoRicerca": 0,
+        "tipoRicerca": tipo_ricerca,
         "indirizzo": None,
         "latitudine": None, "longitudine": None,
         "latitudineNW": None, "longitudineNW": None,
@@ -400,23 +401,37 @@ async def _scrape_regione(
     prezzo_max: Optional[float] = None,
     id_tipologie: Optional[list] = None,
 ) -> list[dict]:
-    """Per regione: Search/Map (lista ID) → Search/Data (dettagli a batch)."""
-    body = _build_search_params(
-        regione=regione,
-        prezzo_min=prezzo_min,
-        prezzo_max=prezzo_max,
-        id_tipologie=id_tipologie,
-    )
-    map_results = await _call_search_map(client, body)
-    if not map_results:
+    """Per regione: 2 Search/Map (immobili + mobili) → Search/Data batched.
+
+    Faccio 2 chiamate (tipoRicerca=1 immobili + tipoRicerca=2 mobili)
+    perché tipoRicerca=0 a volte non include tutti i mobili.
+    """
+    # Step 1: ottieni IDs con 2 chiamate Search/Map (immobili + mobili)
+    ids: list[int] = []
+    seen: set[int] = set()
+    for tr in (1, 2):
+        body = _build_search_params(
+            regione=regione,
+            prezzo_min=prezzo_min,
+            prezzo_max=prezzo_max,
+            id_tipologie=id_tipologie,
+            tipo_ricerca=tr,
+        )
+        map_results = await _call_search_map(client, body)
+        for m in map_results:
+            iid = m.get("idLotto")
+            if iid and iid not in seen:
+                seen.add(iid)
+                ids.append(iid)
+
+    if not ids:
         return []
 
-    ids = [m["idLotto"] for m in map_results if "idLotto" in m]
     batches = [ids[i:i + DATA_BATCH_SIZE] for i in range(0, len(ids), DATA_BATCH_SIZE)]
-    logger.info("  %s: %d ID da Search/Map → %d batch da %d (parallel)",
+    logger.info("  %s: %d ID totali (immobili+mobili) → %d batch da %d (parallel)",
                 regione, len(ids), len(batches), DATA_BATCH_SIZE)
 
-    # Esegui i batch in parallel a gruppi di 5 (per non sovraccaricare l'API)
+    # Step 2: dettagli batched in parallel
     PARALLEL = 5
     all_data: list[dict] = []
     for i in range(0, len(batches), PARALLEL):
