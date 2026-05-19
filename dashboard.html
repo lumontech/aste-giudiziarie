@@ -126,6 +126,22 @@
     margin-left: auto;
     display: flex; align-items: center; gap: 12px;
   }
+  .search-wrap {
+    position: relative;
+  }
+  .search-wrap input {
+    width: 360px;
+    background: var(--card);
+    border: 1px solid var(--border-2);
+    color: var(--text);
+    padding: 7px 12px;
+    font-size: 12px;
+    font-family: var(--mono);
+    border-radius: 4px;
+    outline: none;
+  }
+  .search-wrap input:focus { border-color: var(--gold); width: 420px; transition: width 0.15s; }
+  .search-wrap input::placeholder { color: var(--text-faint); }
   .server-status {
     display: flex; align-items: center; gap: 6px;
     font-family: var(--mono);
@@ -357,6 +373,13 @@
   }
   .badge-region { background: var(--card-2); border-color: var(--border-2); color: var(--text-dim); }
   .badge-type { background: var(--gold-dim); border-color: var(--gold); color: var(--gold); }
+  .badge-info {
+    background: var(--card-2);
+    border-color: var(--border-2);
+    color: var(--text-dim);
+    padding: 3px 6px;
+    cursor: help;
+  }
   .badge-risk-basso { background: var(--green-dim); border-color: var(--green); color: var(--green); }
   .badge-risk-medio { background: var(--yellow-dim); border-color: var(--yellow); color: var(--yellow); }
   .badge-risk-alto { background: var(--red-dim); border-color: var(--red); color: var(--red); }
@@ -750,6 +773,9 @@
       <button class="tab" data-tab="occasioni">Occasioni Mercato</button>
     </div>
     <div class="header-right">
+      <div class="search-wrap">
+        <input type="text" id="searchInput" placeholder="🔍 Cerca: comune, tribunale, indirizzo, descrizione, n.procedura..." autocomplete="off">
+      </div>
       <div class="server-status" id="serverStatus">
         <span class="dot"></span>
         <span class="label">Verifica server...</span>
@@ -830,6 +856,16 @@
         <option value="libero">Libero</option>
         <option value="occupato">Occupato</option>
       </select>
+    </div>
+
+    <div class="filter-group">
+      <label class="filter-label">Scadenza asta</label>
+      <div class="toggle-row" id="filterScadenza">
+        <button class="toggle active" data-value="">Tutti</button>
+        <button class="toggle" data-value="7">&lt; 7gg</button>
+        <button class="toggle" data-value="30">&lt; 30gg</button>
+        <button class="toggle" data-value="90">&lt; 90gg</button>
+      </div>
     </div>
 
     <div class="filter-group">
@@ -1013,6 +1049,8 @@ const STATE = {
     categoria: '',
     occupazione: '',
     ordine: 'score',
+    query: '',
+    scadenzaMax: '',
   },
   refreshTimer: null,
 };
@@ -1283,6 +1321,22 @@ function applyFilters(list) {
   if (f.rischio) out = out.filter(a => a._rischio === f.rischio);
   if (f.categoria) out = out.filter(a => a._categoria === f.categoria);
   if (f.occupazione) out = out.filter(a => a._occupazione === f.occupazione);
+  if (f.scadenzaMax) {
+    const maxGg = parseInt(f.scadenzaMax, 10);
+    out = out.filter(a => a._giorni != null && a._giorni >= 0 && a._giorni <= maxGg);
+  }
+  if (f.query && f.query.trim()) {
+    const q = f.query.toLowerCase().trim();
+    out = out.filter(a => {
+      const hay = [
+        a.titolo, a.descrizione, a.comune, a.provincia, a.regione,
+        a.tribunale, a.indirizzo, a.tipologia_label, a.ruolo,
+        a.numero_procedura ? String(a.numero_procedura) : '',
+        a.anno_procedura ? String(a.anno_procedura) : '',
+      ].filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+  }
 
   switch (f.ordine) {
     case 'score':       out = [...out].sort((a, b) => b._score - a._score); break;
@@ -1359,6 +1413,9 @@ function cardHtml(a) {
         <div class="badges">
           ${a.regione ? `<span class="badge badge-region">${escapeHtml(a.regione)}</span>` : ''}
           ${a._categoria ? `<span class="badge badge-type">${escapeHtml(a._categoria)}</span>` : ''}
+          ${a.vendita_telematica ? `<span class="badge badge-info" title="Asta telematica online">🖥</span>` : ''}
+          ${a.has_foto ? `<span class="badge badge-info" title="Foto disponibili">📷</span>` : ''}
+          ${a.has_planimetrie ? `<span class="badge badge-info" title="Planimetrie disponibili">📐</span>` : ''}
         </div>
         <span class="badge badge-risk-${a._rischio}">rischio ${a._rischio}</span>
       </div>
@@ -1693,6 +1750,27 @@ function bindEvents() {
   $('#filterOccupazione').addEventListener('change', e => { STATE.filters.occupazione = e.target.value; renderAll(); });
   $('#filterOrdine').addEventListener('change', e => { STATE.filters.ordine = e.target.value; renderAll(); });
 
+  // Toggle scadenza
+  $$('#filterScadenza .toggle').forEach(t => {
+    t.addEventListener('click', () => {
+      $$('#filterScadenza .toggle').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      STATE.filters.scadenzaMax = t.dataset.value;
+      renderAll();
+    });
+  });
+
+  // Ricerca testuale (debounced 200ms)
+  let searchTimer = null;
+  $('#searchInput').addEventListener('input', e => {
+    clearTimeout(searchTimer);
+    const val = e.target.value;
+    searchTimer = setTimeout(() => {
+      STATE.filters.query = val;
+      renderAll();
+    }, 200);
+  });
+
   $('#btnUpdate').addEventListener('click', async () => {
     if (!STATE.serverOnline) { alert('Server offline — avvia server.py'); return; }
     const btn = $('#btnUpdate');
@@ -1714,7 +1792,7 @@ function bindEvents() {
   });
 
   $('#btnReset').addEventListener('click', () => {
-    STATE.filters = { regione: '', comune: '', budgetMax: 100000, rischio: '', categoria: '', occupazione: '', ordine: 'score' };
+    STATE.filters = { regione: '', comune: '', budgetMax: 100000, rischio: '', categoria: '', occupazione: '', ordine: 'score', query: '', scadenzaMax: '' };
     $('#filterRegione').value = '';
     $('#filterComune').value = '';
     $('#filterBudget').value = 100000;
@@ -1722,7 +1800,9 @@ function bindEvents() {
     $('#filterCategoria').value = '';
     $('#filterOccupazione').value = '';
     $('#filterOrdine').value = 'score';
+    $('#searchInput').value = '';
     $$('#filterRischio .toggle').forEach((t, i) => t.classList.toggle('active', i === 0));
+    $$('#filterScadenza .toggle').forEach((t, i) => t.classList.toggle('active', i === 0));
     $$('.preset').forEach(p => p.classList.toggle('active', parseInt(p.dataset.budget, 10) === 100000));
     populateComuni();
     renderAll();
