@@ -393,59 +393,86 @@ async def _call_search_data(client: httpx.AsyncClient, id_lotti: list[int]) -> l
     return data if isinstance(data, list) else []
 
 
-async def _scrape_regione(
+IDS_IMMOBILI = [1, 2, 3, 4, 5]
+IDS_MOBILI = list(range(6, 26))  # 6..25 per coprire eventuali nuove categorie
+
+# Mapping provincia (sigla) → regione, per attribuire la regione ai mobili
+# (chiamati senza filtro regione)
+PROVINCIA_REGIONE = {
+    "AG": "Sicilia", "CL": "Sicilia", "CT": "Sicilia", "EN": "Sicilia",
+    "ME": "Sicilia", "PA": "Sicilia", "RG": "Sicilia", "SR": "Sicilia", "TP": "Sicilia",
+    "AQ": "Abruzzo", "CH": "Abruzzo", "PE": "Abruzzo", "TE": "Abruzzo",
+    "MT": "Basilicata", "PZ": "Basilicata",
+    "CZ": "Calabria", "CS": "Calabria", "KR": "Calabria", "RC": "Calabria", "VV": "Calabria",
+    "AV": "Campania", "BN": "Campania", "CE": "Campania", "NA": "Campania", "SA": "Campania",
+    "BO": "Emilia-Romagna", "FC": "Emilia-Romagna", "FE": "Emilia-Romagna",
+    "MO": "Emilia-Romagna", "PC": "Emilia-Romagna", "PR": "Emilia-Romagna",
+    "RA": "Emilia-Romagna", "RE": "Emilia-Romagna", "RN": "Emilia-Romagna",
+    "GO": "Friuli-Venezia Giulia", "PN": "Friuli-Venezia Giulia",
+    "TS": "Friuli-Venezia Giulia", "UD": "Friuli-Venezia Giulia",
+    "FR": "Lazio", "LT": "Lazio", "RI": "Lazio", "RM": "Lazio", "VT": "Lazio",
+    "GE": "Liguria", "IM": "Liguria", "SP": "Liguria", "SV": "Liguria",
+    "BG": "Lombardia", "BS": "Lombardia", "CO": "Lombardia", "CR": "Lombardia",
+    "LC": "Lombardia", "LO": "Lombardia", "MB": "Lombardia", "MI": "Lombardia",
+    "MN": "Lombardia", "PV": "Lombardia", "SO": "Lombardia", "VA": "Lombardia",
+    "AN": "Marche", "AP": "Marche", "FM": "Marche", "MC": "Marche", "PU": "Marche",
+    "CB": "Molise", "IS": "Molise",
+    "AL": "Piemonte", "AT": "Piemonte", "BI": "Piemonte", "CN": "Piemonte",
+    "NO": "Piemonte", "TO": "Piemonte", "VB": "Piemonte", "VC": "Piemonte",
+    "BA": "Puglia", "BR": "Puglia", "BT": "Puglia", "FG": "Puglia",
+    "LE": "Puglia", "TA": "Puglia",
+    "CA": "Sardegna", "NU": "Sardegna", "OR": "Sardegna", "SS": "Sardegna",
+    "SU": "Sardegna",
+    "AR": "Toscana", "FI": "Toscana", "GR": "Toscana", "LI": "Toscana",
+    "LU": "Toscana", "MS": "Toscana", "PI": "Toscana", "PO": "Toscana",
+    "PT": "Toscana", "SI": "Toscana",
+    "BZ": "Trentino-Alto Adige", "TN": "Trentino-Alto Adige",
+    "PG": "Umbria", "TR": "Umbria",
+    "AO": "Valle d'Aosta",
+    "BL": "Veneto", "PD": "Veneto", "RO": "Veneto", "TV": "Veneto",
+    "VE": "Veneto", "VI": "Veneto", "VR": "Veneto",
+}
+
+
+async def _fetch_ids_immobili_regione(
+    client: httpx.AsyncClient, regione: str,
+    *, prezzo_min, prezzo_max, id_tipologie,
+) -> list[int]:
+    tids = ([t for t in id_tipologie if t in IDS_IMMOBILI]
+            if id_tipologie else IDS_IMMOBILI)
+    if not tids:
+        return []
+    body = _build_search_params(
+        regione=regione, prezzo_min=prezzo_min, prezzo_max=prezzo_max,
+        id_tipologie=tids, tipo_ricerca=1,
+    )
+    map_results = await _call_search_map(client, body)
+    return [m["idLotto"] for m in map_results if "idLotto" in m]
+
+
+async def _fetch_ids_mobili_nazionale(
     client: httpx.AsyncClient,
-    regione: str,
-    *,
-    prezzo_min: Optional[float] = None,
-    prezzo_max: Optional[float] = None,
-    id_tipologie: Optional[list] = None,
-) -> list[dict]:
-    """Per regione: 2 Search/Map (immobili + mobili) → Search/Data batched.
+    *, prezzo_min, prezzo_max, id_tipologie,
+) -> list[int]:
+    """Mobili: 1 sola chiamata nazionale (no filtro regione) — il filtro
+    regione+mobili nel backend dà risultati incompleti."""
+    tids = ([t for t in id_tipologie if t in IDS_MOBILI]
+            if id_tipologie else IDS_MOBILI)
+    if not tids:
+        return []
+    body = _build_search_params(
+        regione=None,  # IMPORTANTE: niente filtro regione per mobili
+        prezzo_min=prezzo_min, prezzo_max=prezzo_max,
+        id_tipologie=tids, tipo_ricerca=2,
+    )
+    map_results = await _call_search_map(client, body)
+    return [m["idLotto"] for m in map_results if "idLotto" in m]
 
-    Faccio 2 chiamate (tipoRicerca=1 immobili + tipoRicerca=2 mobili)
-    perché tipoRicerca=0 a volte non include tutti i mobili.
-    """
-    # Step 1: ottieni IDs con 2 chiamate Search/Map (immobili + mobili)
-    # NOTA: per tipoRicerca=2 (mobili) il server ha un bug — se idTipologie=[]
-    # ritorna solo alcune categorie default. Bisogna passare ESPLICITAMENTE
-    # tutti gli ID (6..25 copre tutti i tipi mobili attuali e futuri).
-    ids: list[int] = []
-    seen: set[int] = set()
-    IDS_IMMOBILI = [1, 2, 3, 4, 5]
-    IDS_MOBILI = list(range(6, 26))  # 6..25 per coprire eventuali nuove categorie
 
-    for tr, default_ids in ((1, IDS_IMMOBILI), (2, IDS_MOBILI)):
-        # Se l'utente ha filtrato per tipologia specifica, intersect con i default del tipo corrente
-        if id_tipologie:
-            tids = [t for t in id_tipologie if t in default_ids]
-            if not tids:
-                continue  # nessun match con questo tipoRicerca
-        else:
-            tids = default_ids
-
-        body = _build_search_params(
-            regione=regione,
-            prezzo_min=prezzo_min,
-            prezzo_max=prezzo_max,
-            id_tipologie=tids,
-            tipo_ricerca=tr,
-        )
-        map_results = await _call_search_map(client, body)
-        for m in map_results:
-            iid = m.get("idLotto")
-            if iid and iid not in seen:
-                seen.add(iid)
-                ids.append(iid)
-
+async def _fetch_details(client: httpx.AsyncClient, ids: list[int]) -> list[dict]:
     if not ids:
         return []
-
     batches = [ids[i:i + DATA_BATCH_SIZE] for i in range(0, len(ids), DATA_BATCH_SIZE)]
-    logger.info("  %s: %d ID totali (immobili+mobili) → %d batch da %d (parallel)",
-                regione, len(ids), len(batches), DATA_BATCH_SIZE)
-
-    # Step 2: dettagli batched in parallel
     PARALLEL = 5
     all_data: list[dict] = []
     for i in range(0, len(batches), PARALLEL):
@@ -459,9 +486,7 @@ async def _scrape_regione(
                 logger.warning("    batch fallito: %s", r)
                 continue
             all_data.extend(r)
-
-    norm = [_normalize(d, idx=j, regione_default=regione) for j, d in enumerate(all_data)]
-    return norm
+    return all_data
 
 
 # ---------------------------------------------------------------------------
@@ -501,22 +526,55 @@ async def main(
     errori: dict[str, str] = {}
 
     async with httpx.AsyncClient(headers=DEFAULT_HEADERS) as client:
+        # --- Step 1: immobili (chiamata per regione) ---
         for i, reg in enumerate(target, 1):
-            logger.info("[%d/%d] %s", i, len(target), reg)
+            logger.info("[%d/%d] IMMOBILI %s", i, len(target), reg)
             try:
-                norm = await _scrape_regione(
+                ids = await _fetch_ids_immobili_regione(
                     client, reg,
-                    prezzo_min=prezzo_min,
-                    prezzo_max=prezzo_max,
+                    prezzo_min=prezzo_min, prezzo_max=prezzo_max,
                     id_tipologie=id_tipologie,
                 )
+                if not ids:
+                    aste_per_regione[reg] = 0
+                    continue
+                details = await _fetch_details(client, ids)
+                norm = [_normalize(d, idx=len(aste_all)+j, regione_default=reg) for j, d in enumerate(details)]
                 aste_all.extend(norm)
                 aste_per_regione[reg] = len(norm)
-                logger.info("  ✓ %s: %d aste", reg, len(norm))
+                logger.info("  ✓ %s immobili: %d aste", reg, len(norm))
             except Exception as e:
                 errori[reg] = str(e)
-                aste_per_regione[reg] = 0
-                logger.error("  ✗ %s: %s", reg, e)
+                aste_per_regione[reg] = aste_per_regione.get(reg, 0)
+                logger.error("  ✗ %s immobili: %s", reg, e)
+
+        # --- Step 2: mobili (1 sola chiamata nazionale, no filtro regione) ---
+        # Solo se non sono state filtrate solo regioni specifiche (in tal caso
+        # filtreremo lato client dopo aver attribuito la regione via provincia)
+        try:
+            logger.info("MOBILI nazionali (1 chiamata, no filtro regione)")
+            ids_mob = await _fetch_ids_mobili_nazionale(
+                client,
+                prezzo_min=prezzo_min, prezzo_max=prezzo_max,
+                id_tipologie=id_tipologie,
+            )
+            if ids_mob:
+                details_mob = await _fetch_details(client, ids_mob)
+                # Attribuisci regione tramite provincia
+                regioni_set = set(target)
+                solo_target = bool(regioni)  # se utente ha chiesto regioni specifiche
+                for j, d in enumerate(details_mob):
+                    prov = (d.get("provincia") or "").upper()
+                    reg = PROVINCIA_REGIONE.get(prov, "Sconosciuta")
+                    if solo_target and reg not in regioni_set:
+                        continue  # filtro client per regione richiesta
+                    norm_item = _normalize(d, idx=len(aste_all)+j, regione_default=reg)
+                    aste_all.append(norm_item)
+                    aste_per_regione[reg] = aste_per_regione.get(reg, 0) + 1
+                logger.info("  ✓ Mobili: %d lotti distribuiti per regione", len(details_mob))
+        except Exception as e:
+            errori["__mobili_nazionali__"] = str(e)
+            logger.error("  ✗ Mobili nazionali: %s", e)
 
     duration = (datetime.now() - start).total_seconds()
 
