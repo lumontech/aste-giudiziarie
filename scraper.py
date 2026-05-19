@@ -407,14 +407,28 @@ async def _scrape_regione(
     perché tipoRicerca=0 a volte non include tutti i mobili.
     """
     # Step 1: ottieni IDs con 2 chiamate Search/Map (immobili + mobili)
+    # NOTA: per tipoRicerca=2 (mobili) il server ha un bug — se idTipologie=[]
+    # ritorna solo alcune categorie default. Bisogna passare ESPLICITAMENTE
+    # tutti gli ID (6..25 copre tutti i tipi mobili attuali e futuri).
     ids: list[int] = []
     seen: set[int] = set()
-    for tr in (1, 2):
+    IDS_IMMOBILI = [1, 2, 3, 4, 5]
+    IDS_MOBILI = list(range(6, 26))  # 6..25 per coprire eventuali nuove categorie
+
+    for tr, default_ids in ((1, IDS_IMMOBILI), (2, IDS_MOBILI)):
+        # Se l'utente ha filtrato per tipologia specifica, intersect con i default del tipo corrente
+        if id_tipologie:
+            tids = [t for t in id_tipologie if t in default_ids]
+            if not tids:
+                continue  # nessun match con questo tipoRicerca
+        else:
+            tids = default_ids
+
         body = _build_search_params(
             regione=regione,
             prezzo_min=prezzo_min,
             prezzo_max=prezzo_max,
-            id_tipologie=id_tipologie,
+            id_tipologie=tids,
             tipo_ricerca=tr,
         )
         map_results = await _call_search_map(client, body)
