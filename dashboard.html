@@ -579,6 +579,81 @@
     white-space: pre-wrap;
     display: none;
   }
+
+  /* ============================================================
+     COSTI TOTALI (calcolatore nel modal)
+     ============================================================ */
+  .costi-box {
+    margin-top: 20px;
+    padding: 16px;
+    background: var(--card-2);
+    border: 1px solid var(--border-2);
+    border-radius: 4px;
+  }
+  .costi-box h4 {
+    color: var(--gold);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 12px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .costi-toggle {
+    display: inline-flex;
+    border: 1px solid var(--border-2);
+    border-radius: 3px;
+    overflow: hidden;
+    font-family: var(--mono);
+  }
+  .costi-toggle button {
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    padding: 4px 10px;
+    font-size: 10px;
+    cursor: pointer;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .costi-toggle button.active {
+    background: var(--gold-dim);
+    color: var(--gold);
+  }
+  .costi-table {
+    width: 100%;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .costi-table tr td {
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .costi-table tr:last-child td {
+    border-bottom: none;
+    padding-top: 10px;
+    font-weight: 600;
+    color: var(--gold);
+    font-size: 14px;
+  }
+  .costi-table td.amt {
+    text-align: right;
+    color: var(--text);
+  }
+  .costi-table td.label {
+    color: var(--text-dim);
+    font-size: 11px;
+  }
+  .costi-table input.price-input {
+    background: var(--card);
+    border: 1px solid var(--border-2);
+    color: var(--text);
+    padding: 4px 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+    border-radius: 3px;
+    width: 110px;
+    text-align: right;
+  }
   .ai-result.show { display: block; }
   .ai-result h4 {
     color: var(--gold);
@@ -1477,6 +1552,85 @@ function renderAll() {
 }
 
 /* =====================================================================
+   CALCOLATORE COSTI TOTALI
+   ===================================================================== */
+function calcolaCostiImmobile(prezzo, scenario) {
+  // scenario: 'prima' o 'seconda'
+  // Calcolo realistico costi acquisto immobile all'asta (privato)
+  if (!prezzo || prezzo <= 0) return null;
+  const out = { prezzo, righe: [], scenario };
+  out.righe.push(['Prezzo aggiudicazione', prezzo]);
+  if (scenario === 'prima') {
+    const registro = Math.max(prezzo * 0.02, 1000);
+    out.righe.push(['Imposta registro (2%, min €1000)', registro]);
+    out.righe.push(['Imposta ipotecaria fissa', 50]);
+    out.righe.push(['Imposta catastale fissa', 50]);
+  } else {
+    const registro = Math.max(prezzo * 0.09, 1000);
+    out.righe.push(['Imposta registro (9%, min €1000)', registro]);
+    out.righe.push(['Imposta ipotecaria fissa', 50]);
+    out.righe.push(['Imposta catastale fissa', 50]);
+  }
+  out.righe.push(['Notaio (atto + trascrizione, stima)', 2000]);
+  out.righe.push(['Spese asta + cancelleria (stima)', 350]);
+  out.righe.push(['Bollo + visure (stima)', 230]);
+  out.totale = out.righe.reduce((s, r) => s + r[1], 0);
+  out.extra_perc = ((out.totale - prezzo) / prezzo) * 100;
+  return out;
+}
+
+function calcolaCostiMobile(prezzo, scenario) {
+  // scenario: 'iva' (IVA 22% applicabile) o 'no_iva'
+  if (!prezzo || prezzo <= 0) return null;
+  const out = { prezzo, righe: [], scenario };
+  out.righe.push(['Prezzo aggiudicazione', prezzo]);
+  if (scenario === 'iva') {
+    out.righe.push(['IVA 22%', prezzo * 0.22]);
+  }
+  out.righe.push(['Spese asta + cancelleria (stima)', 200]);
+  out.righe.push(['Passaggio proprietà (se veicolo, stima)', 300]);
+  out.totale = out.righe.reduce((s, r) => s + r[1], 0);
+  out.extra_perc = ((out.totale - prezzo) / prezzo) * 100;
+  return out;
+}
+
+function renderCostiBox(asta, scenario) {
+  const isMobile = asta.is_mobile || (asta.tipologia_id >= 6);
+  const calc = isMobile
+    ? calcolaCostiMobile(asta.prezzo_base, scenario || 'no_iva')
+    : calcolaCostiImmobile(asta.prezzo_base, scenario || 'prima');
+  if (!calc) return '<p style="color:var(--text-dim);font-size:11px;">Prezzo base non disponibile, calcolo costi impossibile.</p>';
+  const toggleHtml = isMobile
+    ? `<div class="costi-toggle">
+         <button data-scenario="no_iva" class="${scenario==='no_iva'||!scenario?'active':''}">Senza IVA</button>
+         <button data-scenario="iva" class="${scenario==='iva'?'active':''}">+ IVA 22%</button>
+       </div>`
+    : `<div class="costi-toggle">
+         <button data-scenario="prima" class="${scenario==='prima'||!scenario?'active':''}">Prima casa</button>
+         <button data-scenario="seconda" class="${scenario==='seconda'?'active':''}">Seconda casa</button>
+       </div>`;
+  const rows = calc.righe.map(([label, amt]) =>
+    `<tr><td class="label">${escapeHtml(label)}</td><td class="amt">${fmtEuro(amt)}</td></tr>`
+  ).join('');
+  return `
+    <h4>
+      <span>💰 Costo totale stimato</span>
+      ${toggleHtml}
+    </h4>
+    <table class="costi-table">
+      ${rows}
+      <tr>
+        <td class="label">TOTALE (+${calc.extra_perc.toFixed(1)}% sul prezzo)</td>
+        <td class="amt">${fmtEuro(calc.totale)}</td>
+      </tr>
+    </table>
+    <p style="margin-top: 8px; font-size: 10px; color: var(--text-faint); line-height: 1.4;">
+      Stime di massima. Notaio e spese variano per zona e complessità della procedura.
+      Per beni venduti da impresa (società in fallimento) potrebbe applicarsi IVA invece di registro.
+    </p>`;
+}
+
+/* =====================================================================
    MODAL DETTAGLIO
    ===================================================================== */
 function openModal(id) {
@@ -1523,10 +1677,14 @@ function openModal(id) {
   const pvpHome = 'https://pvp.giustizia.it/pvp/it/homepage.page';
   const linkLotto = a.link || pvpHome;
 
+  const isMobileCat = a.is_mobile || (a.tipologia_id >= 6);
+  const defaultScenario = isMobileCat ? 'no_iva' : 'prima';
+
   $('#modalBody').innerHTML = `
     ${mapsHtml}
     <div class="modal-grid">${fieldsHtml}</div>
-    <div class="modal-actions">
+    <div class="costi-box" id="costiBox">${renderCostiBox(a, defaultScenario)}</div>
+    <div class="modal-actions" style="margin-top: 18px;">
       <button class="btn btn-primary" id="btnAiAnalisi">🧠 Analisi AI approfondita</button>
       <a class="btn" href="${escapeHtml(linkLotto)}" target="_blank" rel="noopener">↗ Apri lotto su pvp.giustizia.it</a>
       <a class="btn btn-ghost" href="${pvpHome}" target="_blank" rel="noopener">Homepage portale</a>
@@ -1534,6 +1692,15 @@ function openModal(id) {
     <div class="ai-result" id="aiResult"></div>`;
 
   $('#btnAiAnalisi').addEventListener('click', () => runAiAnalysis(a));
+
+  // Handler toggle prima/seconda casa o IVA mobili
+  $('#costiBox').addEventListener('click', e => {
+    const btn = e.target.closest('.costi-toggle button');
+    if (!btn) return;
+    const scen = btn.dataset.scenario;
+    $('#costiBox').innerHTML = renderCostiBox(a, scen);
+  });
+
   $('#modalOverlay').classList.add('show');
 }
 
