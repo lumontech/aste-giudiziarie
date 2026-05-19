@@ -233,12 +233,44 @@ async def main(
         "aste": aste_all,
     }
 
-    # Backup
+    # ---- SAFETY: NON sovrascrivere risultati validi con un run fallito ----
+    # Se il nuovo scrape ha 0 aste E ci sono stati errori, NON tocchiamo
+    # results.json. Lasciamo lo scrape failure visibile via /api/status ma
+    # i dati precedenti restano.
+    if len(aste_all) == 0 and errori:
+        logger.error("=" * 60)
+        logger.error("SCRAPE FALLITO — 0 aste + errori. results.json NON sovrascritto.")
+        logger.error("Errori: %s", errori)
+        # Salva un file separato col diagnostico, NON sovrascrive results.json
+        try:
+            diag_path = os.path.join(os.path.dirname(RESULTS_FILE) or ".", "last_failure.json")
+            with open(diag_path, "w", encoding="utf-8") as f:
+                json.dump(out, f, ensure_ascii=False, indent=2)
+            logger.info("Diagnostico salvato in %s", diag_path)
+        except Exception as e:
+            logger.warning("Impossibile salvare diagnostico: %s", e)
+        # Propaga eccezione perché server marchi last_error
+        raise RuntimeError(f"Scrape fallito: {list(errori.keys())[:3]}")
+
+    # ---- Backup ROTATIVO: tieni gli ultimi 3 risultati validi ----
+    # Backup solo se il file esistente è valido (>0 aste). Mai sovrascrivere
+    # un backup buono con un risultato vuoto.
     if os.path.exists(RESULTS_FILE):
         try:
-            shutil.copy2(RESULTS_FILE, BACKUP_FILE)
+            existing = json.load(open(RESULTS_FILE))
+            if existing.get("totale_aste", 0) > 0:
+                # Ruota: backup → backup.1 → backup.2
+                for n in (2, 1):
+                    src = f"{BACKUP_FILE}.{n}" if n > 0 else BACKUP_FILE
+                    dst = f"{BACKUP_FILE}.{n+1}"
+                    if os.path.exists(src):
+                        shutil.copy2(src, dst)
+                if os.path.exists(BACKUP_FILE):
+                    shutil.copy2(BACKUP_FILE, f"{BACKUP_FILE}.1")
+                shutil.copy2(RESULTS_FILE, BACKUP_FILE)
+                logger.info("Backup rotativo eseguito (results → backup → .1 → .2)")
         except Exception as e:
-            logger.warning("Backup fallito: %s", e)
+            logger.warning("Backup fallito (proseguo con write): %s", e)
 
     # Crea dir se non esiste
     os.makedirs(os.path.dirname(RESULTS_FILE) or ".", exist_ok=True)
