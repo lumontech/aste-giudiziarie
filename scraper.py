@@ -39,7 +39,7 @@ BACKUP_FILE = os.environ.get("BACKUP_FILE", "results_backup.json")
 API_BASE = os.environ.get("ASTE_API_BASE", "https://webapi.astegiudiziarie.it")
 SITE_BASE = os.environ.get("ASTE_SITE_BASE", "https://www.astegiudiziarie.it")
 API_TIMEOUT = float(os.environ.get("ASTE_API_TIMEOUT", "60"))
-DATA_BATCH_SIZE = int(os.environ.get("ASTE_BATCH_SIZE", "100"))  # max idLotto per chiamata Search/Data
+DATA_BATCH_SIZE = int(os.environ.get("ASTE_BATCH_SIZE", "20"))  # limite hard server: 20 per chiamata Search/Data
 
 DEFAULT_HEADERS = {
     "Content-Type": "application/json",
@@ -333,14 +333,24 @@ async def _scrape_regione(
         return []
 
     ids = [m["idLotto"] for m in map_results if "idLotto" in m]
-    logger.info("  %s: %d ID da Search/Map → fetching details in batch da %d",
-                regione, len(ids), DATA_BATCH_SIZE)
+    batches = [ids[i:i + DATA_BATCH_SIZE] for i in range(0, len(ids), DATA_BATCH_SIZE)]
+    logger.info("  %s: %d ID da Search/Map → %d batch da %d (parallel)",
+                regione, len(ids), len(batches), DATA_BATCH_SIZE)
 
+    # Esegui i batch in parallel a gruppi di 5 (per non sovraccaricare l'API)
+    PARALLEL = 5
     all_data: list[dict] = []
-    for i in range(0, len(ids), DATA_BATCH_SIZE):
-        batch = ids[i:i + DATA_BATCH_SIZE]
-        data = await _call_search_data(client, batch)
-        all_data.extend(data)
+    for i in range(0, len(batches), PARALLEL):
+        group = batches[i:i + PARALLEL]
+        results = await asyncio.gather(
+            *[_call_search_data(client, b) for b in group],
+            return_exceptions=True,
+        )
+        for r in results:
+            if isinstance(r, Exception):
+                logger.warning("    batch fallito: %s", r)
+                continue
+            all_data.extend(r)
 
     norm = [_normalize(d, idx=j, regione_default=regione) for j, d in enumerate(all_data)]
     return norm
