@@ -412,7 +412,10 @@ def get_asta_detail(asta_id: int):
 
 
 # ---------------------------------------------------------------------------
-# Endpoint: analisi mercato incrociata (Claude + web search)
+# Endpoint: analisi mercato incrociata
+# NOTA: la logica è stata spostata lato client (dashboard.html) per riusare
+# la API key Anthropic già salvata in localStorage del browser dell'utente.
+# Lasciato qui per back-compat / eventuale futuro uso server-side.
 # ---------------------------------------------------------------------------
 
 # Cache in-memory delle analisi (idLotto -> result)

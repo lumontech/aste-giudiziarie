@@ -1955,35 +1955,187 @@ function renderMarketResult(data, lotto) {
     </p>`;
 }
 
-async function runMarketAnalysis(a) {
+function _buildMarketPrompt(a) {
+  const tip = a.tipologia_id;
+  const isAuto = tip === 6;
+  const isImmobile = tip >= 1 && tip <= 5;
+  const base = `DATI LOTTO ALL'ASTA:
+- Titolo: ${a.titolo || ''}
+- Descrizione completa: ${(a.descrizione || '').slice(0, 1500)}
+- Prezzo base asta: € ${(a.prezzo_base || 0).toLocaleString('it-IT')}
+- Località: ${a.comune || ''} (${a.provincia || ''}), ${a.regione || ''}
+- Indirizzo: ${a.indirizzo || ''}
+- Categoria: ${a.tipologia_label || 'sconosciuta'}
+- Data vendita: ${a.data_vendita || ''}${a._giorni != null ? ` (in ${a._giorni} giorni)` : ''}
+`;
+  if (isAuto) {
+    return base + `
+Sei un esperto del mercato auto usate in Italia. Analizza questo lotto giudiziario.
+
+OBIETTIVO:
+1. Identifica dalla descrizione: MARCA, MODELLO, ANNO IMMATRICOLAZIONE, ALIMENTAZIONE, CHILOMETRI (se menzionati), VERSIONE/ALLESTIMENTO
+2. Usa web_search per cercare lo stesso modello/anno su AUTOSCOUT24, SUBITO.IT, AUTOMOBILE.IT
+3. Trova almeno 3-5 annunci comparabili
+4. Calcola prezzo medio/min/max di mercato
+5. Confronta con prezzo asta € ${(a.prezzo_base || 0).toLocaleString('it-IT')}
+6. Considera che auto all'asta possono avere: ipoteche, fermo amministrativo, stato meccanico ignoto, mancanza chiavi/documenti
+
+RISPONDI ESCLUSIVAMENTE CON JSON (no testo, no markdown) in questa struttura:
+{
+  "tipo_analisi": "auto",
+  "caratteristiche": {"marca":"...","modello":"...","anno":"...","alimentazione":"...","km":"...","versione":"..."},
+  "prezzo_mercato": {"min":N,"media":N,"max":N,"n_confronti":N,"fonti":["autoscout24","subito.it"]},
+  "annunci_simili": [{"titolo":"...","prezzo":N,"anno":"...","km":"...","url":"..."}],
+  "convenienza_percentuale": N (negativo = sotto mercato),
+  "verdetto": "OTTIMO"|"BUONO"|"MEDIO"|"MEDIOCRE"|"PESSIMO",
+  "punteggio": N (0-100),
+  "motivazione": "max 200 caratteri",
+  "rischi": ["..."],
+  "raccomandazione": "max 150 caratteri"
+}`;
+  }
+  if (isImmobile) {
+    return base + `
+Sei un esperto di mercato immobiliare italiano. Analizza questo lotto giudiziario.
+
+OBIETTIVO:
+1. Identifica: TIPOLOGIA (appartamento/villa/commerciale), MQ (${a.mq_stimati || 'da estrarre dalla descrizione'}), N. VANI, PIANO, CONDIZIONI (ristrutturato/da ristrutturare), STATO OCCUPAZIONE
+2. Usa web_search per prezzi al m² nella zona "${a.comune}" (${a.provincia}):
+   - "prezzo medio mq ${a.comune}"
+   - "site:immobiliare.it ${a.comune} appartamento vendita"
+   - "site:idealista.it ${a.comune}"
+   - Quotazioni OMI Agenzia Entrate per zona
+3. Trova prezzo medio €/m² per quella zona/tipologia
+4. Calcola valore mercato stimato = mq × €/m² medio
+5. Confronta con prezzo asta € ${(a.prezzo_base || 0).toLocaleString('it-IT')}
+6. Stima costi ristrutturazione se descrizione menziona "da ristrutturare", danni
+7. Considera occupazione, quota indivisa, lite pendente come fattori di rischio
+
+RISPONDI ESCLUSIVAMENTE CON JSON (no testo, no markdown):
+{
+  "tipo_analisi": "immobile",
+  "caratteristiche": {"tipologia":"...","mq":N,"vani":"...","piano":"...","condizioni":"...","occupazione":"libero|occupato|sconosciuto"},
+  "prezzo_mercato": {"euro_mq_min":N,"euro_mq_medio":N,"euro_mq_max":N,"valore_stimato":N,"fonti":["immobiliare.it","idealista","OMI"]},
+  "convenienza_percentuale": N,
+  "verdetto": "OTTIMO"|"BUONO"|"MEDIO"|"MEDIOCRE"|"PESSIMO",
+  "punteggio": N (0-100),
+  "costi_ristrutturazione_stimati": N,
+  "motivazione": "max 250 caratteri",
+  "rischi": ["..."],
+  "raccomandazione": "max 200 caratteri"
+}`;
+  }
+  return base + `
+Sei un esperto di mercato dell'usato/collezionismo italiano. Analizza questo lotto.
+
+OBIETTIVO:
+1. Identifica cosa è il lotto
+2. Usa web_search per prezzi simili su EBAY, SUBITO.IT, VINTED, CATAWIKI
+3. Calcola range di mercato
+4. Confronta con prezzo asta € ${(a.prezzo_base || 0).toLocaleString('it-IT')}
+5. Considera che beni mobili all'asta sono "as-is" senza garanzia
+
+RISPONDI ESCLUSIVAMENTE CON JSON (no testo, no markdown):
+{
+  "tipo_analisi": "altro",
+  "caratteristiche": {"descrizione_breve":"...","categoria":"..."},
+  "prezzo_mercato": {"min":N,"media":N,"max":N,"fonti":["ebay","subito.it"]},
+  "convenienza_percentuale": N,
+  "verdetto": "OTTIMO"|"BUONO"|"MEDIO"|"MEDIOCRE"|"PESSIMO",
+  "punteggio": N (0-100),
+  "motivazione": "max 250 caratteri",
+  "rischi": ["..."],
+  "raccomandazione": "max 200 caratteri"
+}`;
+}
+
+async function _callAnthropicWithSearch(prompt) {
+  const key = await getApiKey();
+  if (!key) throw new Error('API key Anthropic mancante (premi su Analisi AI per impostarla)');
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-5-20250929',
+      max_tokens: 4096,
+      messages: [{ role: 'user', content: prompt }],
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
+    }),
+  });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`HTTP ${r.status}: ${t.slice(0, 300)}`);
+  }
+  const data = await r.json();
+  // Estrai l'ultimo blocco text dal content array
+  let txt = '';
+  for (const block of (data.content || [])) {
+    if (block.type === 'text') txt = block.text;
+  }
+  // Trova JSON nel testo
+  const m = txt.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error('JSON non trovato nella risposta Claude');
+  return JSON.parse(m[0]);
+}
+
+// Cache analisi mercato in localStorage, 24h validità
+const MARKET_CACHE_KEY = 'aste_market_cache_v1';
+function _getMarketCache() {
+  try {
+    return JSON.parse(localStorage.getItem(MARKET_CACHE_KEY) || '{}');
+  } catch { return {}; }
+}
+function _setMarketCache(id, data) {
+  const c = _getMarketCache();
+  c[id] = { ...data, _cached_at: Date.now() };
+  try { localStorage.setItem(MARKET_CACHE_KEY, JSON.stringify(c)); } catch {}
+}
+function _getCachedMarket(id) {
+  const c = _getMarketCache();
+  const entry = c[id];
+  if (!entry || !entry._cached_at) return null;
+  if (Date.now() - entry._cached_at > 86400000) return null; // 24h
+  return entry;
+}
+
+async function runMarketAnalysis(a, forceRefresh = false) {
   const box = $('#marketResult');
   box.classList.add('show');
-  box.innerHTML = `<h4>📊 Analisi Mercato in corso...</h4>
-    <p style="font-size:13px;line-height:1.6;">
-      <span class="spinner"></span> Claude sta cercando prezzi reali su Autoscout24 / Subito / Immobiliare / Idealista.
-      <br><span style="color:var(--text-dim);font-size:11px;">Può richiedere 30-60 secondi (web search + analisi).</span>
-    </p>`;
-  try {
-    const url = `/api/analisi-mercato/${a._id}`;
-    const r = await api(url, { method: 'POST' });
-    const data = await r.json();
-    if (!r.ok || data.error) {
-      box.innerHTML = `<h4>Errore analisi mercato</h4>
-        <p style="color:var(--red);font-size:12px;">${escapeHtml(data.error || `HTTP ${r.status}`)}</p>
-        ${data.fix ? `<p style="font-size:11px;color:var(--text-dim);">Fix: ${escapeHtml(data.fix)}</p>` : ''}`;
+
+  // Cache hit
+  if (!forceRefresh) {
+    const cached = _getCachedMarket(a._id);
+    if (cached) {
+      box.innerHTML = renderMarketResult({ ...cached, from_cache: true }, a);
+      const ref = $('#btnRefreshMarket');
+      if (ref) ref.addEventListener('click', (e) => { e.preventDefault(); runMarketAnalysis(a, true); });
       return;
     }
+  }
+
+  box.innerHTML = `<h4>📊 Analisi Mercato in corso...</h4>
+    <p style="font-size:13px;line-height:1.6;">
+      <span class="spinner"></span> Claude sta cercando prezzi reali su Autoscout24 / Subito / Immobiliare / Idealista...
+      <br><span style="color:var(--text-dim);font-size:11px;">Può richiedere 30-90 secondi (web search + analisi).</span>
+    </p>`;
+  try {
+    const prompt = _buildMarketPrompt(a);
+    const data = await _callAnthropicWithSearch(prompt);
+    _setMarketCache(a._id, data);
     box.innerHTML = renderMarketResult(data, a);
     const ref = $('#btnRefreshMarket');
-    if (ref) ref.addEventListener('click', async (e) => {
-      e.preventDefault();
-      box.innerHTML = `<h4>📊 Ricalcolo in corso...</h4><span class="spinner"></span>`;
-      const r2 = await api(`/api/analisi-mercato/${a._id}?refresh=1`, { method: 'POST' });
-      const d2 = await r2.json();
-      box.innerHTML = renderMarketResult(d2, a);
-    });
+    if (ref) ref.addEventListener('click', (e) => { e.preventDefault(); runMarketAnalysis(a, true); });
   } catch (err) {
-    box.innerHTML = `<h4>Errore di rete</h4><p style="color:var(--red);font-size:12px;">${escapeHtml(err.message)}</p>`;
+    box.innerHTML = `<h4>Errore analisi mercato</h4>
+      <p style="color:var(--red);font-size:12px;">${escapeHtml(err.message)}</p>
+      <p style="font-size:11px;color:var(--text-dim);margin-top:8px;">
+        Suggerimento: verifica che la tua API key Anthropic sia valida e abbia credito.
+      </p>`;
   }
 }
 
