@@ -412,6 +412,209 @@ def get_asta_detail(asta_id: int):
 
 
 # ---------------------------------------------------------------------------
+# Endpoint: analisi mercato incrociata (Claude + web search)
+# ---------------------------------------------------------------------------
+
+# Cache in-memory delle analisi (idLotto -> result)
+_market_cache: dict = {}
+_market_cache_lock = threading.Lock()
+
+
+def _build_market_prompt(asta: dict) -> tuple[str, str]:
+    """Costruisce prompt mirato in base al tipo di lotto.
+    Ritorna (prompt, tipo_analisi: 'auto'|'immobile'|'altro')."""
+    tip_id = asta.get("tipologia_id")
+    titolo = asta.get("titolo", "")
+    descrizione = asta.get("descrizione", "")
+    prezzo = asta.get("prezzo_base", 0) or 0
+    comune = asta.get("comune", "")
+    provincia = asta.get("provincia", "")
+    regione = asta.get("regione", "")
+    indirizzo = asta.get("indirizzo", "")
+    mq = asta.get("mq_stimati")
+    data_vendita = asta.get("data_vendita", "")
+    days = asta.get("days_to_auction")
+
+    base_context = f"""DATI LOTTO ALL'ASTA:
+- Titolo: {titolo}
+- Descrizione completa: {descrizione[:1500]}
+- Prezzo base asta: € {prezzo:,.0f}
+- Località: {comune} ({provincia}), {regione}
+- Indirizzo: {indirizzo}
+- Categoria: {asta.get('tipologia_label', 'sconosciuta')}
+- Data vendita: {data_vendita}{f' (in {days} giorni)' if days is not None else ''}
+"""
+
+    if tip_id == 6:  # auto
+        prompt = base_context + f"""
+Sei un esperto del mercato auto usate in Italia. Analizza questo lotto giudiziario.
+
+OBIETTIVO:
+1. Identifica dalla descrizione: MARCA, MODELLO, ANNO IMMATRICOLAZIONE, ALIMENTAZIONE, CHILOMETRI (se menzionati), VERSIONE/ALLESTIMENTO
+2. Usa il web_search per cercare lo stesso modello/anno su AUTOSCOUT24, SUBITO.IT, AUTOMOBILE.IT
+   - Esempio query: "FIAT 500L 2014 benzina km" oppure "site:autoscout24.it FIAT Punto 2010"
+3. Trova almeno 3-5 annunci comparabili con caratteristiche simili
+4. Calcola prezzo medio/min/max di mercato
+5. Confronta con prezzo asta giudiziaria € {prezzo:,.0f}
+6. Considera che auto all'asta possono avere: ipoteche, fermo amministrativo, stato meccanico ignoto, possibile mancanza chiavi/documenti
+
+RISPONDI ESCLUSIVAMENTE CON UN OGGETTO JSON (no testo prima/dopo, no markdown) in questa struttura:
+{{
+  "tipo_analisi": "auto",
+  "caratteristiche": {{"marca": "...", "modello": "...", "anno": "...", "alimentazione": "...", "km": "...", "versione": "..."}},
+  "prezzo_mercato": {{"min": numero, "media": numero, "max": numero, "n_confronti": numero, "fonti": ["autoscout24","subito.it"]}},
+  "annunci_simili": [{{"titolo":"...","prezzo":numero,"anno":"...","km":"...","url":"..."}}, ...max 3],
+  "convenienza_percentuale": numero (negativo se asta sotto mercato),
+  "verdetto": "OTTIMO" | "BUONO" | "MEDIO" | "MEDIOCRE" | "PESSIMO",
+  "punteggio": numero 0-100,
+  "motivazione": "stringa max 200 caratteri",
+  "rischi": ["...", "..."],
+  "raccomandazione": "stringa max 150 caratteri"
+}}"""
+        return prompt, "auto"
+
+    elif tip_id in (1, 2, 3, 4, 5):  # immobili
+        prompt = base_context + f"""
+Sei un esperto di mercato immobiliare italiano. Analizza questo lotto giudiziario.
+
+OBIETTIVO:
+1. Identifica dalla descrizione: TIPOLOGIA precisa (appartamento/villa/commerciale), MQ ({mq if mq else 'da estrarre'}), N. VANI, PIANO, CONDIZIONI (ristrutturato/da ristrutturare), STATO OCCUPAZIONE
+2. Usa il web_search per cercare prezzi al m² nella zona "{comune} ({provincia})":
+   - "prezzo medio mq {comune}"
+   - "site:immobiliare.it {comune} appartamento vendita"
+   - "site:idealista.it {comune} vendita"
+3. Trova prezzo medio €/m² per quella zona/tipologia (anche da quotazioni OMI Agenzia Entrate)
+4. Calcola valore di mercato stimato = mq × prezzo medio €/m²
+5. Confronta con prezzo asta € {prezzo:,.0f}
+6. Stima eventuali costi di ristrutturazione se la descrizione menziona "da ristrutturare", "ristrutturare", danni
+7. Considera: occupazione, quota indivisa, lite pendente sono fattori di rischio
+
+RISPONDI ESCLUSIVAMENTE CON JSON (no testo, no markdown):
+{{
+  "tipo_analisi": "immobile",
+  "caratteristiche": {{"tipologia":"...","mq":numero,"vani":"...","piano":"...","condizioni":"...","occupazione":"libero|occupato|sconosciuto"}},
+  "prezzo_mercato": {{"euro_mq_min":numero,"euro_mq_medio":numero,"euro_mq_max":numero,"valore_stimato":numero,"fonti":["immobiliare.it","idealista","OMI"]}},
+  "convenienza_percentuale": numero (negativo se asta sotto valore mercato),
+  "verdetto": "OTTIMO" | "BUONO" | "MEDIO" | "MEDIOCRE" | "PESSIMO",
+  "punteggio": numero 0-100,
+  "costi_ristrutturazione_stimati": numero,
+  "motivazione": "stringa max 250 caratteri",
+  "rischi": ["...", "..."],
+  "raccomandazione": "stringa max 200 caratteri"
+}}"""
+        return prompt, "immobile"
+
+    else:  # arte, macchinari, ecc.
+        prompt = base_context + f"""
+Sei un esperto di mercato dell'usato/collezionismo italiano. Analizza questo lotto giudiziario.
+
+OBIETTIVO:
+1. Identifica esattamente cosa è il lotto dalla descrizione
+2. Usa il web_search per cercare prezzi di oggetti/beni simili su EBAY, SUBITO.IT, VINTED, CATAWIKI
+3. Trova un range di prezzo di mercato
+4. Confronta con prezzo asta € {prezzo:,.0f}
+5. Considera che beni mobili all'asta sono "as-is" senza garanzia
+
+RISPONDI ESCLUSIVAMENTE CON JSON (no testo, no markdown):
+{{
+  "tipo_analisi": "altro",
+  "caratteristiche": {{"descrizione_breve":"...","categoria":"..."}},
+  "prezzo_mercato": {{"min":numero,"media":numero,"max":numero,"fonti":["ebay","subito.it"]}},
+  "convenienza_percentuale": numero,
+  "verdetto": "OTTIMO" | "BUONO" | "MEDIO" | "MEDIOCRE" | "PESSIMO",
+  "punteggio": numero 0-100,
+  "motivazione": "stringa max 250 caratteri",
+  "rischi": ["..."],
+  "raccomandazione": "stringa max 200 caratteri"
+}}"""
+        return prompt, "altro"
+
+
+def _call_anthropic_with_search(prompt: str, api_key: str) -> dict:
+    """Chiama Claude API con tool web_search e estrae il JSON dalla risposta."""
+    import httpx
+    payload = {
+        "model": "claude-sonnet-4-5-20250929",
+        "max_tokens": 4096,
+        "messages": [{"role": "user", "content": prompt}],
+        "tools": [{
+            "type": "web_search_20250305",
+            "name": "web_search",
+            "max_uses": 5,
+        }],
+    }
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    with httpx.Client(timeout=180.0) as client:
+        r = client.post("https://api.anthropic.com/v1/messages", json=payload, headers=headers)
+        if r.status_code >= 400:
+            logger.error("Anthropic API error %d: %s", r.status_code, r.text[:500])
+            raise RuntimeError(f"Anthropic HTTP {r.status_code}: {r.text[:200]}")
+        data = r.json()
+
+    # Estrai il testo finale (l'ultimo blocco di tipo "text")
+    text = ""
+    for block in data.get("content", []):
+        if block.get("type") == "text":
+            text = block.get("text", "")  # prendi l'ultimo
+
+    # Estrai il JSON dal testo
+    import re
+    m = re.search(r"\{[\s\S]*\}", text)
+    if not m:
+        raise ValueError(f"JSON non trovato nella risposta Claude: {text[:300]}")
+    return json.loads(m.group(0))
+
+
+@app.route("/api/analisi-mercato/<int:asta_id>", methods=["POST"])
+@require_auth
+def analisi_mercato(asta_id):
+    """Analisi mercato incrociata via Claude + web_search.
+    Cerca su autoscout24/subito/immobiliare/idealista e dà verdetto strutturato."""
+
+    # Force refresh con ?refresh=1
+    refresh = request.args.get("refresh") in ("1", "true")
+
+    # Cache hit?
+    with _market_cache_lock:
+        cached = _market_cache.get(asta_id)
+    if cached and not refresh:
+        cached_at = cached.get("_cached_at")
+        # Cache valida per 24h
+        if cached_at and (datetime.now() - datetime.fromisoformat(cached_at)).total_seconds() < 86400:
+            return jsonify({**cached, "from_cache": True})
+
+    # Recupera lotto
+    data = _load_results()
+    asta = next((a for a in data.get("aste", []) if a.get("id") == asta_id), None)
+    if not asta:
+        return jsonify({"error": f"Lotto {asta_id} non trovato"}), 404
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        return jsonify({
+            "error": "ANTHROPIC_API_KEY non configurata sul server",
+            "fix": "Aggiungi ANTHROPIC_API_KEY=sk-ant-... in /etc/aste-giudiziarie/.env e riavvia pm2"
+        }), 500
+
+    try:
+        prompt, tipo_analisi = _build_market_prompt(asta)
+        logger.info("Analisi mercato per lotto %d (tipo: %s)", asta_id, tipo_analisi)
+        result = _call_anthropic_with_search(prompt, api_key)
+        result["_cached_at"] = datetime.now().isoformat()
+        result["_lotto_id"] = asta_id
+        with _market_cache_lock:
+            _market_cache[asta_id] = result
+        return jsonify({**result, "from_cache": False})
+    except Exception as e:
+        logger.error("Analisi mercato fallita per lotto %d: %s", asta_id, e)
+        return jsonify({"error": f"Analisi fallita: {str(e)[:300]}"}), 500
+
+
+# ---------------------------------------------------------------------------
 # Endpoint: lancia scraping
 # ---------------------------------------------------------------------------
 

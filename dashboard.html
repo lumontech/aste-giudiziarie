@@ -581,6 +581,110 @@
   }
 
   /* ============================================================
+     ANALISI MERCATO INCROCIATA
+     ============================================================ */
+  .market-result {
+    margin-top: 16px;
+    padding: 18px;
+    background: var(--card-2);
+    border: 1px solid var(--gold);
+    border-radius: 6px;
+    display: none;
+  }
+  .market-result.show { display: block; }
+  .market-result h4 {
+    color: var(--gold);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 14px;
+  }
+  .market-verdict {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 4px;
+    margin-bottom: 14px;
+    font-family: var(--mono);
+  }
+  .verdict-OTTIMO { background: rgba(74,222,128,0.18); border-left: 4px solid var(--green); }
+  .verdict-BUONO { background: rgba(74,222,128,0.08); border-left: 4px solid var(--green); }
+  .verdict-MEDIO { background: rgba(251,191,36,0.10); border-left: 4px solid var(--yellow); }
+  .verdict-MEDIOCRE { background: rgba(248,113,113,0.10); border-left: 4px solid var(--red); }
+  .verdict-PESSIMO { background: rgba(248,113,113,0.20); border-left: 4px solid var(--red); }
+  .market-verdict .label {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 4px;
+  }
+  .market-verdict .v { font-size: 22px; font-weight: 700; letter-spacing: 0.05em; }
+  .verdict-OTTIMO .v, .verdict-BUONO .v { color: var(--green); }
+  .verdict-MEDIO .v { color: var(--yellow); }
+  .verdict-MEDIOCRE .v, .verdict-PESSIMO .v { color: var(--red); }
+  .market-verdict .conv {
+    font-size: 28px; font-weight: 700;
+    font-family: var(--mono);
+  }
+  .market-section { margin-bottom: 12px; }
+  .market-section h5 {
+    color: var(--text-dim);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+  .market-prices {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    font-family: var(--mono);
+  }
+  .market-prices > div {
+    background: var(--card); padding: 8px 10px;
+    border-radius: 3px;
+  }
+  .market-prices .lbl { font-size: 9px; color: var(--text-dim); text-transform: uppercase; }
+  .market-prices .v { font-size: 16px; color: var(--text); font-weight: 600; }
+  .market-prices .v.gold { color: var(--gold); }
+  .market-list {
+    list-style: none;
+    font-size: 12px;
+    line-height: 1.6;
+    padding: 0;
+  }
+  .market-list li { padding: 4px 0; padding-left: 16px; position: relative; }
+  .market-list li:before { content: '•'; position: absolute; left: 0; color: var(--gold); }
+  .market-list.rischi li:before { content: '⚠'; color: var(--red); }
+  .market-characteristics {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+  .market-characteristics > div {
+    background: var(--card);
+    padding: 6px 10px;
+    border-radius: 3px;
+  }
+  .market-characteristics .k { font-size: 9px; color: var(--text-dim); text-transform: uppercase; }
+  .market-characteristics .v { font-size: 12px; color: var(--text); }
+  .market-comparables {
+    display: grid; grid-template-columns: 1fr;
+    gap: 6px;
+    font-size: 11px;
+  }
+  .market-comparables a {
+    background: var(--card); padding: 8px 10px; border-radius: 3px;
+    display: flex; justify-content: space-between; align-items: center;
+    text-decoration: none; color: var(--text);
+    border: 1px solid transparent;
+  }
+  .market-comparables a:hover { border-color: var(--gold); }
+  .market-comparables .price { color: var(--gold); font-family: var(--mono); font-weight: 600; }
+
+  /* ============================================================
      COSTI TOTALI (calcolatore nel modal)
      ============================================================ */
   .costi-box {
@@ -1685,13 +1789,15 @@ function openModal(id) {
     <div class="modal-grid">${fieldsHtml}</div>
     <div class="costi-box" id="costiBox">${renderCostiBox(a, defaultScenario)}</div>
     <div class="modal-actions" style="margin-top: 18px;">
-      <button class="btn btn-primary" id="btnAiAnalisi">🧠 Analisi AI approfondita</button>
-      <a class="btn" href="${escapeHtml(linkLotto)}" target="_blank" rel="noopener">↗ Apri lotto su pvp.giustizia.it</a>
-      <a class="btn btn-ghost" href="${pvpHome}" target="_blank" rel="noopener">Homepage portale</a>
+      <button class="btn btn-primary" id="btnMarketAnalysis">📊 Analisi Mercato Incrociata</button>
+      <button class="btn" id="btnAiAnalisi">🧠 Analisi AI generica</button>
+      <a class="btn btn-ghost" href="${escapeHtml(linkLotto)}" target="_blank" rel="noopener">↗ Apri su astegiudiziarie.it</a>
     </div>
+    <div class="market-result" id="marketResult"></div>
     <div class="ai-result" id="aiResult"></div>`;
 
   $('#btnAiAnalisi').addEventListener('click', () => runAiAnalysis(a));
+  $('#btnMarketAnalysis').addEventListener('click', () => runMarketAnalysis(a));
 
   // Handler toggle prima/seconda casa o IVA mobili
   $('#costiBox').addEventListener('click', e => {
@@ -1741,6 +1847,144 @@ async function callAnthropic(prompt) {
   }
   const data = await r.json();
   return data.content?.[0]?.text || '(nessuna risposta)';
+}
+
+/* =====================================================================
+   ANALISI MERCATO INCROCIATA — chiama backend che usa Claude+web_search
+   ===================================================================== */
+function renderMarketResult(data, lotto) {
+  const verd = data.verdetto || 'MEDIO';
+  const conv = data.convenienza_percentuale;
+  const convSign = conv > 0 ? '+' : '';
+  const convStr = (conv != null) ? `${convSign}${conv.toFixed(1)}%` : '—';
+  const pts = data.punteggio != null ? data.punteggio : '—';
+
+  // Caratteristiche estratte
+  const chars = data.caratteristiche || {};
+  const charsHtml = Object.entries(chars)
+    .filter(([k, v]) => v != null && v !== '')
+    .map(([k, v]) => `<div><div class="k">${escapeHtml(k)}</div><div class="v">${escapeHtml(String(v))}</div></div>`)
+    .join('');
+
+  // Prezzi mercato
+  const pm = data.prezzo_mercato || {};
+  let pricesHtml = '';
+  if (pm.euro_mq_medio) {
+    pricesHtml = `
+      <div class="market-prices">
+        <div><div class="lbl">€/m² min</div><div class="v">${fmtEuro(pm.euro_mq_min)}</div></div>
+        <div><div class="lbl">€/m² medio</div><div class="v gold">${fmtEuro(pm.euro_mq_medio)}</div></div>
+        <div><div class="lbl">€/m² max</div><div class="v">${fmtEuro(pm.euro_mq_max)}</div></div>
+      </div>
+      ${pm.valore_stimato ? `<p style="margin-top:8px;font-family:var(--mono);font-size:13px;">
+        Valore mercato stimato: <strong style="color:var(--gold);">${fmtEuro(pm.valore_stimato)}</strong>
+        ${data.costi_ristrutturazione_stimati ? ` · Costi ristrutturazione stimati: <strong>${fmtEuro(data.costi_ristrutturazione_stimati)}</strong>` : ''}
+      </p>` : ''}`;
+  } else {
+    pricesHtml = `
+      <div class="market-prices">
+        <div><div class="lbl">Prezzo min</div><div class="v">${fmtEuro(pm.min)}</div></div>
+        <div><div class="lbl">Prezzo medio</div><div class="v gold">${fmtEuro(pm.media)}</div></div>
+        <div><div class="lbl">Prezzo max</div><div class="v">${fmtEuro(pm.max)}</div></div>
+      </div>
+      ${pm.n_confronti ? `<p style="margin-top:6px;font-size:11px;color:var(--text-dim);">Basato su ${pm.n_confronti} annunci comparabili</p>` : ''}`;
+  }
+
+  // Fonti
+  const fonti = (pm.fonti || []).map(f => `<span style="background:var(--card);padding:2px 8px;border-radius:3px;font-family:var(--mono);font-size:10px;color:var(--text-dim);">${escapeHtml(f)}</span>`).join(' ');
+
+  // Annunci comparabili (se auto)
+  let comparablesHtml = '';
+  if (Array.isArray(data.annunci_simili) && data.annunci_simili.length) {
+    comparablesHtml = `
+      <div class="market-section">
+        <h5>Annunci comparabili trovati</h5>
+        <div class="market-comparables">
+          ${data.annunci_simili.map(c => `
+            <a href="${escapeHtml(c.url || '#')}" target="_blank" rel="noopener">
+              <span>${escapeHtml(c.titolo || '')}${c.anno ? ' · ' + escapeHtml(c.anno) : ''}${c.km ? ' · ' + escapeHtml(c.km) + ' km' : ''}</span>
+              <span class="price">${fmtEuro(c.prezzo)}</span>
+            </a>
+          `).join('')}
+        </div>
+      </div>`;
+  }
+
+  // Rischi
+  const rischi = Array.isArray(data.rischi) ? data.rischi : [];
+  const rischiHtml = rischi.length ? `
+    <div class="market-section">
+      <h5>Rischi e attenzioni</h5>
+      <ul class="market-list rischi">${rischi.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>
+    </div>` : '';
+
+  return `
+    <h4>📊 Analisi Mercato Incrociata${data.from_cache ? ' (da cache)' : ''}</h4>
+    <div class="market-verdict verdict-${verd}">
+      <div>
+        <div class="label">Verdetto</div>
+        <div class="v">${escapeHtml(verd)}</div>
+      </div>
+      <div style="text-align:right;">
+        <div class="label">Convenienza vs mercato</div>
+        <div class="conv ${conv < 0 ? 'verdict-OTTIMO' : conv > 10 ? 'verdict-PESSIMO' : ''}" style="background:transparent;border:none;padding:0;color:${conv < 0 ? 'var(--green)' : conv > 10 ? 'var(--red)' : 'var(--yellow)'};">${convStr}</div>
+      </div>
+      <div style="text-align:right;">
+        <div class="label">Punteggio</div>
+        <div class="v" style="color:var(--gold);">${pts}/100</div>
+      </div>
+    </div>
+    ${charsHtml ? `<div class="market-section"><h5>Caratteristiche estratte</h5><div class="market-characteristics">${charsHtml}</div></div>` : ''}
+    <div class="market-section">
+      <h5>Range prezzi mercato${fonti ? ' (fonti: ' + fonti + ')' : ''}</h5>
+      ${pricesHtml}
+    </div>
+    ${comparablesHtml}
+    <div class="market-section">
+      <h5>Motivazione</h5>
+      <p style="font-size:13px;line-height:1.6;">${escapeHtml(data.motivazione || '')}</p>
+    </div>
+    ${rischiHtml}
+    ${data.raccomandazione ? `
+      <div class="market-section" style="background:var(--card);padding:12px;border-radius:4px;border-left:3px solid var(--gold);">
+        <h5 style="color:var(--gold);">💡 Raccomandazione</h5>
+        <p style="font-size:13px;line-height:1.6;margin:0;">${escapeHtml(data.raccomandazione)}</p>
+      </div>` : ''}
+    <p style="margin-top:14px;font-size:10px;color:var(--text-faint);text-align:right;">
+      <a href="#" id="btnRefreshMarket" style="color:var(--text-dim);text-decoration:underline;">Ricalcola</a>
+    </p>`;
+}
+
+async function runMarketAnalysis(a) {
+  const box = $('#marketResult');
+  box.classList.add('show');
+  box.innerHTML = `<h4>📊 Analisi Mercato in corso...</h4>
+    <p style="font-size:13px;line-height:1.6;">
+      <span class="spinner"></span> Claude sta cercando prezzi reali su Autoscout24 / Subito / Immobiliare / Idealista.
+      <br><span style="color:var(--text-dim);font-size:11px;">Può richiedere 30-60 secondi (web search + analisi).</span>
+    </p>`;
+  try {
+    const url = `/api/analisi-mercato/${a._id}`;
+    const r = await api(url, { method: 'POST' });
+    const data = await r.json();
+    if (!r.ok || data.error) {
+      box.innerHTML = `<h4>Errore analisi mercato</h4>
+        <p style="color:var(--red);font-size:12px;">${escapeHtml(data.error || `HTTP ${r.status}`)}</p>
+        ${data.fix ? `<p style="font-size:11px;color:var(--text-dim);">Fix: ${escapeHtml(data.fix)}</p>` : ''}`;
+      return;
+    }
+    box.innerHTML = renderMarketResult(data, a);
+    const ref = $('#btnRefreshMarket');
+    if (ref) ref.addEventListener('click', async (e) => {
+      e.preventDefault();
+      box.innerHTML = `<h4>📊 Ricalcolo in corso...</h4><span class="spinner"></span>`;
+      const r2 = await api(`/api/analisi-mercato/${a._id}?refresh=1`, { method: 'POST' });
+      const d2 = await r2.json();
+      box.innerHTML = renderMarketResult(d2, a);
+    });
+  } catch (err) {
+    box.innerHTML = `<h4>Errore di rete</h4><p style="color:var(--red);font-size:12px;">${escapeHtml(err.message)}</p>`;
+  }
 }
 
 async function runAiAnalysis(a) {
