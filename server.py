@@ -572,6 +572,73 @@ def _call_anthropic_with_search(prompt: str, api_key: str) -> dict:
     return json.loads(m.group(0))
 
 
+@app.route("/api/lotto-allegati/<int:asta_id>", methods=["GET"])
+@require_auth
+def lotto_allegati(asta_id):
+    """Estrae i link agli allegati PDF (perizia, ordinanza, avviso) dalla
+    pagina pubblica del lotto su astegiudiziarie.it."""
+    import re
+    import httpx
+
+    # Recupera urlSchedaDettagliata dal lotto in cache
+    data = _load_results()
+    asta = next((a for a in data.get("aste", []) if a.get("id") == asta_id), None)
+    page_url = None
+    if asta and asta.get("link"):
+        page_url = asta["link"]
+
+    if not page_url:
+        # Fallback: chiedi a Search/Data
+        try:
+            with httpx.Client(timeout=30.0) as c:
+                r = c.post(
+                    "https://webapi.astegiudiziarie.it/api/Search/Data",
+                    json=[asta_id],
+                    headers={"Content-Type": "application/json",
+                             "Origin": "https://www.astegiudiziarie.it"},
+                )
+                arr = r.json()
+                if arr and arr[0].get("urlSchedaDettagliata"):
+                    page_url = "https://www.astegiudiziarie.it" + arr[0]["urlSchedaDettagliata"]
+        except Exception as e:
+            return jsonify({"error": f"Impossibile recuperare URL lotto: {e}"}), 500
+
+    if not page_url:
+        return jsonify({"error": "URL lotto non trovato", "allegati": []}), 404
+
+    try:
+        with httpx.Client(timeout=30.0, follow_redirects=True) as c:
+            r = c.get(page_url, headers={
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+            })
+            html = r.text
+    except Exception as e:
+        return jsonify({"error": f"Download pagina lotto fallito: {e}"}), 500
+
+    # Estrai link /allegato/*.pdf/*
+    links = set(re.findall(r'/allegato/[^"\'\s]+?\.pdf/\d+', html, re.I))
+    allegati = []
+    for rel in sorted(links):
+        url = "https://www.astegiudiziarie.it" + rel
+        nome = rel.split("/")[2]  # es. perizia-sa-ei-388-2019-c-2.pdf
+        low = nome.lower()
+        if "perizia" in low:
+            tipo = "perizia"
+        elif "avviso" in low:
+            tipo = "avviso"
+        elif "ordinanza" in low:
+            tipo = "ordinanza"
+        else:
+            tipo = "altro"
+        allegati.append({"tipo": tipo, "nome": nome, "url": url})
+
+    # Ordina: perizia prima
+    ordine = {"perizia": 0, "avviso": 1, "ordinanza": 2, "altro": 3}
+    allegati.sort(key=lambda a: ordine.get(a["tipo"], 9))
+
+    return jsonify({"asta_id": asta_id, "page_url": page_url, "allegati": allegati})
+
+
 @app.route("/api/analisi-mercato/<int:asta_id>", methods=["POST"])
 @require_auth
 def analisi_mercato(asta_id):

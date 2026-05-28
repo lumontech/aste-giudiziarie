@@ -1918,8 +1918,35 @@ function renderMarketResult(data, lotto) {
       <ul class="market-list rischi">${rischi.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>
     </div>` : '';
 
+  // Sezione perizia (se Claude l'ha letta)
+  let periziaHtml = '';
+  if (data.perizia && typeof data.perizia === 'object') {
+    const p = data.perizia;
+    const rows = [
+      ['Valore stima perito', p.valore_stima_perito ? fmtEuro(p.valore_stima_perito) : null],
+      ['Superficie reale', p.superficie_reale_mq ? `${p.superficie_reale_mq} m²` : null],
+      ['Ipoteche / gravami', p.ipoteche],
+      ['Abusi edilizi', p.abusi_edilizi],
+      ['Stato conservazione', p.stato_conservazione],
+      ['Note legali', p.note_legali],
+    ].filter(([k, v]) => v && v !== '' && v !== 'N/A' && v !== 'nessuna' && v !== 'nessuno');
+    if (rows.length) {
+      periziaHtml = `
+        <div class="market-section" style="background:var(--card);padding:12px;border-radius:4px;border-left:3px solid var(--blue);">
+          <h5 style="color:var(--blue);">📄 Dati dalla PERIZIA ufficiale</h5>
+          <table class="costi-table">
+            ${rows.map(([k, v]) => `<tr><td class="label">${escapeHtml(k)}</td><td class="amt" style="text-align:left;color:var(--text);">${escapeHtml(String(v))}</td></tr>`).join('')}
+          </table>
+        </div>`;
+    }
+  }
+
+  const periziaBadge = data._perizia_letta
+    ? `<span style="background:rgba(96,165,250,0.15);color:var(--blue);padding:2px 8px;border-radius:3px;font-size:10px;font-family:var(--mono);">📄 perizia letta</span>`
+    : `<span style="background:var(--card);color:var(--text-faint);padding:2px 8px;border-radius:3px;font-size:10px;font-family:var(--mono);">perizia non disponibile</span>`;
+
   return `
-    <h4>📊 Analisi Mercato Incrociata${data.from_cache ? ' (da cache)' : ''}</h4>
+    <h4>📊 Analisi Mercato Incrociata ${periziaBadge}${data.from_cache ? ' <span style="color:var(--text-faint);font-size:10px;">(cache)</span>' : ''}</h4>
     <div class="market-verdict verdict-${verd}">
       <div>
         <div class="label">Verdetto</div>
@@ -1935,6 +1962,7 @@ function renderMarketResult(data, lotto) {
       </div>
     </div>
     ${charsHtml ? `<div class="market-section"><h5>Caratteristiche estratte</h5><div class="market-characteristics">${charsHtml}</div></div>` : ''}
+    ${periziaHtml}
     <div class="market-section">
       <h5>Range prezzi mercato${fonti ? ' (fonti: ' + fonti + ')' : ''}</h5>
       ${pricesHtml}
@@ -1955,10 +1983,21 @@ function renderMarketResult(data, lotto) {
     </p>`;
 }
 
-function _buildMarketPrompt(a) {
+function _buildMarketPrompt(a, hasPerizia = false) {
   const tip = a.tipologia_id;
   const isAuto = tip === 6;
   const isImmobile = tip >= 1 && tip <= 5;
+  const periziaIstr = hasPerizia ? `
+
+⚠ IMPORTANTE: È allegata la PERIZIA UFFICIALE in PDF. LEGGILA ATTENTAMENTE ed estrai:
+- Superficie reale (mq) e composizione (vani, accessori)
+- Stato di occupazione (libero / occupato da chi / con quale titolo)
+- IPOTECHE, pignoramenti, gravami, vincoli
+- ABUSI EDILIZI / difformità urbanistiche e costo sanatoria stimato
+- Stato di conservazione e lavori necessari (con stima costi se indicata dal perito)
+- Valore di stima del perito (è il riferimento ufficiale!)
+- Spese condominiali arretrate, diritti di terzi, servitù
+Usa questi dati REALI dalla perizia invece di stimare. Cita il valore di stima del perito.` : '';
   const base = `DATI LOTTO ALL'ASTA:
 - Titolo: ${a.titolo || ''}
 - Descrizione completa: ${(a.descrizione || '').slice(0, 1500)}
@@ -1995,11 +2034,12 @@ RISPONDI ESCLUSIVAMENTE CON JSON (no testo, no markdown) in questa struttura:
 }`;
   }
   if (isImmobile) {
-    return base + `
+    return base + periziaIstr + `
+
 Sei un esperto di mercato immobiliare italiano. Analizza questo lotto giudiziario.
 
 OBIETTIVO:
-1. Identifica: TIPOLOGIA (appartamento/villa/commerciale), MQ (${a.mq_stimati || 'da estrarre dalla descrizione'}), N. VANI, PIANO, CONDIZIONI (ristrutturato/da ristrutturare), STATO OCCUPAZIONE
+1. Identifica: TIPOLOGIA (appartamento/villa/commerciale), MQ (${a.mq_stimati || 'da estrarre da perizia/descrizione'}), N. VANI, PIANO, CONDIZIONI, STATO OCCUPAZIONE
 2. Usa web_search per prezzi al m² nella zona "${a.comune}" (${a.provincia}):
    - "prezzo medio mq ${a.comune}"
    - "site:immobiliare.it ${a.comune} appartamento vendita"
@@ -2008,19 +2048,20 @@ OBIETTIVO:
 3. Trova prezzo medio €/m² per quella zona/tipologia
 4. Calcola valore mercato stimato = mq × €/m² medio
 5. Confronta con prezzo asta € ${(a.prezzo_base || 0).toLocaleString('it-IT')}
-6. Stima costi ristrutturazione se descrizione menziona "da ristrutturare", danni
-7. Considera occupazione, quota indivisa, lite pendente come fattori di rischio
+6. Stima costi ristrutturazione + eventuale sanatoria abusi (da perizia se disponibile)
+7. Considera occupazione, quota indivisa, ipoteche, lite pendente come fattori di rischio
 
 RISPONDI ESCLUSIVAMENTE CON JSON (no testo, no markdown):
 {
   "tipo_analisi": "immobile",
   "caratteristiche": {"tipologia":"...","mq":N,"vani":"...","piano":"...","condizioni":"...","occupazione":"libero|occupato|sconosciuto"},
+  "perizia": {"valore_stima_perito":N,"superficie_reale_mq":N,"ipoteche":"...","abusi_edilizi":"...","stato_conservazione":"...","note_legali":"..."},
   "prezzo_mercato": {"euro_mq_min":N,"euro_mq_medio":N,"euro_mq_max":N,"valore_stimato":N,"fonti":["immobiliare.it","idealista","OMI"]},
   "convenienza_percentuale": N,
   "verdetto": "OTTIMO"|"BUONO"|"MEDIO"|"MEDIOCRE"|"PESSIMO",
   "punteggio": N (0-100),
   "costi_ristrutturazione_stimati": N,
-  "motivazione": "max 250 caratteri",
+  "motivazione": "max 300 caratteri",
   "rischi": ["..."],
   "raccomandazione": "max 200 caratteri"
 }`;
@@ -2049,9 +2090,15 @@ RISPONDI ESCLUSIVAMENTE CON JSON (no testo, no markdown):
 }`;
 }
 
-async function _callAnthropicWithSearch(prompt) {
+async function _callAnthropicWithSearch(prompt, pdfUrl = null) {
   const key = await getApiKey();
   if (!key) throw new Error('API key Anthropic mancante (premi su Analisi AI per impostarla)');
+  // Costruisci content: se c'è una perizia PDF, includila come documento
+  const content = [];
+  if (pdfUrl) {
+    content.push({ type: 'document', source: { type: 'url', url: pdfUrl } });
+  }
+  content.push({ type: 'text', text: prompt });
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -2063,7 +2110,7 @@ async function _callAnthropicWithSearch(prompt) {
     body: JSON.stringify({
       model: 'claude-sonnet-4-5-20250929',
       max_tokens: 4096,
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{ role: 'user', content }],
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
     }),
   });
@@ -2120,12 +2167,29 @@ async function runMarketAnalysis(a, forceRefresh = false) {
 
   box.innerHTML = `<h4>📊 Analisi Mercato in corso...</h4>
     <p style="font-size:13px;line-height:1.6;">
-      <span class="spinner"></span> Claude sta cercando prezzi reali su Autoscout24 / Subito / Immobiliare / Idealista...
-      <br><span style="color:var(--text-dim);font-size:11px;">Può richiedere 30-90 secondi (web search + analisi).</span>
+      <span class="spinner"></span> <span id="marketStep">Cerco la perizia allegata...</span>
+      <br><span style="color:var(--text-dim);font-size:11px;">Può richiedere 30-90 secondi (lettura perizia + web search + analisi).</span>
     </p>`;
   try {
-    const prompt = _buildMarketPrompt(a);
-    const data = await _callAnthropicWithSearch(prompt);
+    // Step 1: recupera allegati PDF (perizia)
+    let periziaUrl = null;
+    try {
+      const ra = await api(`/api/lotto-allegati/${a._id}`);
+      if (ra.ok) {
+        const ja = await ra.json();
+        const perizia = (ja.allegati || []).find(x => x.tipo === 'perizia');
+        if (perizia) periziaUrl = perizia.url;
+      }
+    } catch (e) { /* allegati opzionali */ }
+
+    const stepEl = $('#marketStep');
+    if (stepEl) stepEl.textContent = periziaUrl
+      ? 'Perizia trovata — Claude legge il PDF + cerca prezzi mercato...'
+      : 'Nessuna perizia — Claude cerca prezzi mercato...';
+
+    const prompt = _buildMarketPrompt(a, !!periziaUrl);
+    const data = await _callAnthropicWithSearch(prompt, periziaUrl);
+    data._perizia_letta = !!periziaUrl;
     _setMarketCache(a._id, data);
     box.innerHTML = renderMarketResult(data, a);
     const ref = $('#btnRefreshMarket');
