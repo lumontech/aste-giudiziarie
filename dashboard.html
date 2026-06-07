@@ -581,6 +581,108 @@
   }
 
   /* ============================================================
+     HIGHLIGHTS — 1 lotto per categoria da attenzionare
+     ============================================================ */
+  .highlights {
+    margin-bottom: 24px;
+    padding: 16px 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .highlights-header {
+    display: flex; align-items: baseline; gap: 12px;
+    margin-bottom: 14px;
+  }
+  .highlights-header h3 {
+    font-size: 13px;
+    color: var(--gold);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+  }
+  .highlights-sub {
+    color: var(--text-dim);
+    font-size: 11px;
+    font-family: var(--mono);
+  }
+  .highlights-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 10px;
+  }
+  .hl-card {
+    background: var(--card);
+    border: 1px solid var(--border-2);
+    border-left: 3px solid var(--gold);
+    border-radius: 4px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.15s;
+    position: relative;
+    overflow: hidden;
+  }
+  .hl-card:hover {
+    border-color: var(--gold);
+    transform: translateY(-1px);
+  }
+  .hl-card.opp { border-left-color: var(--green); }
+  .hl-card-cat {
+    font-size: 9px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 4px;
+    font-family: var(--mono);
+  }
+  .hl-card-title {
+    font-size: 12px;
+    color: var(--text);
+    margin-bottom: 6px;
+    line-height: 1.35;
+    height: 32px;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .hl-card-bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 4px;
+  }
+  .hl-card-price {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .hl-card-meta {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-dim);
+    text-align: right;
+  }
+  .hl-card-meta .score {
+    color: var(--gold);
+    font-weight: 600;
+  }
+  .hl-card-loc {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 2px;
+    font-family: var(--mono);
+  }
+  .hl-card-deadline {
+    font-size: 9px;
+    margin-top: 2px;
+    font-family: var(--mono);
+  }
+  .hl-card-deadline.urgent { color: var(--red); font-weight: 600; }
+  .hl-card-deadline.warning { color: var(--yellow); }
+  .hl-card-deadline.normal { color: var(--text-dim); }
+
+  /* ============================================================
      ANALISI MERCATO INCROCIATA
      ============================================================ */
   .market-result {
@@ -1098,6 +1200,15 @@
           <div class="stat-sub" id="statUpdateSub">auto-refresh 5 min</div>
         </div>
       </div>
+
+      <!-- ============ HIGHLIGHTS: 1 lotto top per categoria ============ -->
+      <section id="highlights" class="highlights" style="display:none;">
+        <div class="highlights-header">
+          <h3>🌟 Da Attenzionare</h3>
+          <span class="highlights-sub">1 miglior lotto per categoria · aggiornato automaticamente</span>
+        </div>
+        <div class="highlights-grid" id="highlightsGrid"></div>
+      </section>
 
       <div id="resultsGrid" class="results-grid"></div>
       <div id="emptyState" class="empty-state" style="display:none;">
@@ -1617,7 +1728,130 @@ function cardHtml(a) {
     </div>`;
 }
 
+/* =====================================================================
+   HIGHLIGHTS — selezione automatica 1 lotto per categoria
+   ===================================================================== */
+
+// Mapping tipologia_id → label categoria leggibile + abbreviazione mostrata
+const HIGHLIGHT_CATEGORIES = [
+  { id: 1, label: 'Residenziale', icon: '🏠' },
+  { id: 2, label: 'Commerciale', icon: '🏢' },
+  { id: 3, label: 'Industriale', icon: '🏭' },
+  { id: 5, label: 'Box / Garage / Terreno', icon: '🅿' },
+  { id: 6, label: 'Autoveicoli', icon: '🚗' },
+  { id: 7, label: 'Nautica', icon: '⛵' },
+  { id: 8, label: 'Macchinari', icon: '🔧' },
+  { id: 11, label: 'Arte e antiquariato', icon: '🎨' },
+  { id: 10, label: 'Arredamento', icon: '🛋' },
+  { id: 9, label: 'Informatica', icon: '💻' },
+  { id: 4, label: 'Impianto sportivo', icon: '⚽' },
+  { id: 13, label: 'Libri e cancelleria', icon: '📚' },
+  { id: 12, label: 'Abbigliamento', icon: '👕' },
+  { id: 17, label: 'Quote societarie', icon: '💼' },
+  { id: 18, label: 'Diritti e marchi', icon: '📋' },
+  { id: 14, label: 'Alimentari', icon: '🍕' },
+  { id: 15, label: 'Sanitario', icon: '🏥' },
+];
+
+function _highlightScore(a) {
+  // Punteggio combinato per il "miglior lotto" della categoria
+  let s = (a._score || 50) * 1.0;
+  if (a.is_opportunity) s += 15;
+  // Bonus scadenza imminente ma non scaduta
+  if (a._giorni != null) {
+    if (a._giorni > 0 && a._giorni < 14) s += 12;
+    else if (a._giorni >= 14 && a._giorni < 30) s += 6;
+    else if (a._giorni < 0) s -= 30; // scaduto
+  } else {
+    s -= 5; // data ignota
+  }
+  // €/m² basso per immobili
+  if (a.prezzo_mq != null && a.prezzo_mq < 1000) s += 8;
+  // Libero da occupazione
+  if (a._occupazione === 'libero') s += 6;
+  if (a._occupazione === 'occupato') s -= 10;
+  if (a._quotaIndivisa) s -= 25;
+  // Foto + planimetrie aumentano credibilità
+  if (a.has_foto) s += 2;
+  if (a.has_planimetrie) s += 2;
+  // Prezzo molto basso bonus piccolo
+  if ((a.prezzo_base || 0) > 0 && a.prezzo_base < 25000) s += 4;
+  return s;
+}
+
+function pickHighlights() {
+  // Considera SOLO i dati dello scrape, non i filtri (highlights sono indipendenti)
+  // Esclude lotti scaduti
+  const eligible = STATE.enrichedAste.filter(a =>
+    a.tipologia_id != null && (a._giorni == null || a._giorni >= -1)
+  );
+  const best = {};  // tipologia_id → migliore lotto
+  for (const a of eligible) {
+    const tid = a.tipologia_id;
+    const s = _highlightScore(a);
+    if (!best[tid] || s > best[tid]._hlScore) {
+      best[tid] = { ...a, _hlScore: s };
+    }
+  }
+  return best;
+}
+
+function highlightCardHtml(cat, a) {
+  if (!a) return '';
+  const gg = a._giorni;
+  let dlClass = 'normal', dlText = '';
+  if (gg == null) dlText = 'data n/d';
+  else if (gg < 0) { dlText = 'scaduta'; dlClass = 'urgent'; }
+  else if (gg < 14) { dlText = `⚡ ${gg}gg`; dlClass = 'urgent'; }
+  else if (gg < 30) { dlText = `${gg}gg`; dlClass = 'warning'; }
+  else dlText = `${gg}gg`;
+
+  const opp = a.is_opportunity ? ' opp' : '';
+  const score = Math.round(a._score || 0);
+  const priceStr = a.prezzo_base ? fmtEuro(a.prezzo_base) : '—';
+  const loc = a.comune ? `${a.comune}${a.provincia ? ' (' + a.provincia + ')' : ''}` : '';
+
+  return `
+    <div class="hl-card${opp}" data-id="${a._id}">
+      <div class="hl-card-cat">${cat.icon} ${escapeHtml(cat.label)}</div>
+      <div class="hl-card-title">${escapeHtml(a.titolo || 'Lotto')}</div>
+      <div class="hl-card-loc">${escapeHtml(loc)}</div>
+      <div class="hl-card-bottom">
+        <div class="hl-card-price">${priceStr}</div>
+        <div class="hl-card-meta">
+          <div><span class="score">${score}</span>/100</div>
+          <div class="hl-card-deadline ${dlClass}">${dlText}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderHighlights() {
+  const section = $('#highlights');
+  const grid = $('#highlightsGrid');
+  if (!STATE.enrichedAste.length) {
+    section.style.display = 'none';
+    return;
+  }
+  const best = pickHighlights();
+  const html = HIGHLIGHT_CATEGORIES
+    .map(cat => ({ cat, lotto: best[cat.id] }))
+    .filter(x => x.lotto)
+    .map(x => highlightCardHtml(x.cat, x.lotto))
+    .join('');
+  if (!html) {
+    section.style.display = 'none';
+    return;
+  }
+  grid.innerHTML = html;
+  section.style.display = 'block';
+  grid.querySelectorAll('.hl-card').forEach(el => {
+    el.addEventListener('click', () => openModal(parseInt(el.dataset.id, 10)));
+  });
+}
+
 function renderAll() {
+  renderHighlights();
   const filtered = applyFilters(STATE.enrichedAste);
   renderStats(filtered);
   const grid = $('#resultsGrid');
