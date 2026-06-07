@@ -605,6 +605,18 @@
     font-size: 11px;
     font-family: var(--mono);
   }
+  .highlights-region-select {
+    background: var(--card);
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    padding: 5px 10px;
+    font-size: 12px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    outline: none;
+    cursor: pointer;
+  }
+  .highlights-region-select:hover { background: var(--card-2); }
   .highlights-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -702,6 +714,70 @@
     text-transform: none;
     letter-spacing: 0;
     font-weight: 400;
+  }
+
+  /* ============================================================
+     "PERCHÉ DA ATTENZIONARE" — sezione modal
+     ============================================================ */
+  .why-attentioned {
+    margin-top: 20px;
+    padding: 16px 18px;
+    background: var(--card-2);
+    border: 1px solid var(--gold);
+    border-left: 4px solid var(--gold);
+    border-radius: 4px;
+  }
+  .why-attentioned h4 {
+    color: var(--gold);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 14px;
+  }
+  .why-verdict {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 14px;
+    background: var(--card);
+    border-radius: 4px;
+    margin-bottom: 14px;
+  }
+  .why-label {
+    font-size: 10px; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.1em;
+    margin-bottom: 4px;
+  }
+  .why-v { font-family: var(--mono); font-size: 18px; font-weight: 700; letter-spacing: 0.04em; }
+  .why-score { font-family: var(--mono); font-size: 28px; font-weight: 700; color: var(--gold); }
+  .why-group { margin-bottom: 14px; }
+  .why-group:last-child { margin-bottom: 0; }
+  .why-h5-ok    { color: var(--green); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+  .why-h5-warn  { color: var(--red);   font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+  .why-h5-info  { color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+  .why-list { list-style: none; padding: 0; margin: 0; font-size: 12px; line-height: 1.7; }
+  .why-list li {
+    padding: 4px 0 4px 26px;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+  }
+  .why-list li:last-child { border-bottom: none; }
+  .hl-icon {
+    position: absolute; left: 4px; top: 6px;
+    font-weight: 700; font-family: var(--mono); font-size: 11px;
+  }
+  .why-list-ok .hl-icon   { color: var(--green); }
+  .why-list-warn .hl-icon { color: var(--red); }
+  .why-list-info .hl-icon { color: var(--text-dim); }
+  .hl-weight {
+    color: var(--text-faint); font-size: 10px; font-family: var(--mono);
+    float: right;
+  }
+  .why-foot {
+    margin-top: 12px;
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.5;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
   }
 
   /* ============================================================
@@ -1223,11 +1299,14 @@
         </div>
       </div>
 
-      <!-- ============ HIGHLIGHTS: 1 lotto top per categoria, raggruppato per regione ============ -->
+      <!-- ============ HIGHLIGHTS: 1 lotto top per categoria con menu regione ============ -->
       <section id="highlights" class="highlights" style="display:none;">
         <div class="highlights-header">
-          <h3 id="highlightsTitle">🌟 Da Attenzionare</h3>
-          <span class="highlights-sub">1 miglior lotto per categoria · aggiornato automaticamente</span>
+          <h3>🌟 Da Attenzionare</h3>
+          <select id="highlightRegione" class="highlights-region-select">
+            <option value="__all__">Tutte le regioni</option>
+          </select>
+          <span class="highlights-sub" id="highlightsSub">1 miglior lotto per categoria</span>
         </div>
         <div id="highlightsGrid"></div>
       </section>
@@ -1801,6 +1880,138 @@ function _highlightScore(a) {
   return s;
 }
 
+function _highlightReasons(a) {
+  // Restituisce un array di motivi spiegando perché il lotto merita attenzione
+  // Ogni item: {type: 'ok'|'warn'|'info', text: string, weight: number}
+  const r = [];
+  const score = a._score || 0;
+  const gg = a._giorni;
+
+  // Score AI
+  if (score >= 80) r.push({ type: 'ok', text: `Score AI eccellente: <strong>${score}/100</strong>`, weight: 25 });
+  else if (score >= 65) r.push({ type: 'ok', text: `Score AI buono: <strong>${score}/100</strong>`, weight: 15 });
+  else if (score >= 50) r.push({ type: 'info', text: `Score AI nella media: <strong>${score}/100</strong>`, weight: 5 });
+
+  // Opportunity flag
+  if (a.is_opportunity) {
+    let txt = `Flag <strong>"Opportunità"</strong> attivo`;
+    if (a.rank_reason) txt += ` — <em>${escapeHtml(a.rank_reason)}</em>`;
+    r.push({ type: 'ok', text: txt, weight: 20 });
+  }
+
+  // Scadenza
+  if (gg != null) {
+    if (gg < 0) r.push({ type: 'warn', text: `⚠ Asta SCADUTA da ${Math.abs(gg)}gg`, weight: -30 });
+    else if (gg < 7) r.push({ type: 'ok', text: `⚡ Asta IMMINENTE: <strong>${gg} giorni</strong> (decidere in fretta)`, weight: 20 });
+    else if (gg < 14) r.push({ type: 'ok', text: `⏰ Asta vicina: <strong>${gg} giorni</strong>`, weight: 12 });
+    else if (gg < 30) r.push({ type: 'ok', text: `Asta entro 30gg: <strong>${gg} giorni</strong>`, weight: 6 });
+    else if (gg < 90) r.push({ type: 'info', text: `Asta in <strong>${gg} giorni</strong>`, weight: 0 });
+    else r.push({ type: 'info', text: `Asta lontana: ${gg}gg — tempo per analisi approfondita`, weight: -3 });
+  } else {
+    r.push({ type: 'info', text: 'Data asta non disponibile', weight: -5 });
+  }
+
+  // Prezzo €/mq
+  if (a.prezzo_mq != null) {
+    if (a.prezzo_mq < 500) r.push({ type: 'ok', text: `💸 €/m² <strong>molto basso</strong>: ${fmtEuro(a.prezzo_mq)}/m² (eccellente)`, weight: 15 });
+    else if (a.prezzo_mq < 1000) r.push({ type: 'ok', text: `€/m² basso: <strong>${fmtEuro(a.prezzo_mq)}/m²</strong>`, weight: 8 });
+    else if (a.prezzo_mq < 1500) r.push({ type: 'info', text: `€/m² medio: ${fmtEuro(a.prezzo_mq)}/m²`, weight: 0 });
+    else if (a.prezzo_mq > 4000) r.push({ type: 'warn', text: `€/m² alto: ${fmtEuro(a.prezzo_mq)}/m²`, weight: -5 });
+  }
+
+  // Prezzo base
+  const p = a.prezzo_base;
+  if (p && p > 0) {
+    if (p < 5000) r.push({ type: 'ok', text: `💰 Prezzo base <strong>molto basso</strong>: ${fmtEuro(p)}`, weight: 25 });
+    else if (p < 25000) r.push({ type: 'ok', text: `Prezzo accessibile: <strong>${fmtEuro(p)}</strong>`, weight: 18 });
+    else if (p < 50000) r.push({ type: 'info', text: `Prezzo medio-basso: ${fmtEuro(p)}`, weight: 12 });
+    else if (p > 300000) r.push({ type: 'warn', text: `Prezzo elevato: ${fmtEuro(p)}`, weight: -10 });
+  }
+
+  // Stato occupazione
+  if (a._occupazione === 'libero') r.push({ type: 'ok', text: `🏠 Immobile <strong>libero</strong> (nessuno sgombero necessario)`, weight: 20 });
+  else if (a._occupazione === 'occupato') r.push({ type: 'warn', text: `⚠ Immobile <strong>occupato</strong> (rischio sgombero, costi e tempi)`, weight: -30 });
+
+  // Quota indivisa
+  if (a._quotaIndivisa) r.push({ type: 'warn', text: `⚠ <strong>Quota indivisa</strong> (rischio comproprietà, decisioni condivise)`, weight: -40 });
+
+  // Materiale disponibile
+  const docs = [];
+  if (a.has_foto) docs.push('foto');
+  if (a.has_planimetrie) docs.push('planimetrie');
+  if (a.has_virtual_tour) docs.push('virtual tour');
+  if (a.has_video) docs.push('video');
+  if (docs.length) r.push({ type: 'ok', text: `📸 Documentazione disponibile: <strong>${docs.join(', ')}</strong>`, weight: 5 });
+  else r.push({ type: 'info', text: 'Nessuna documentazione visiva sul portale', weight: -3 });
+
+  // Vendita telematica
+  if (a.vendita_telematica) r.push({ type: 'info', text: '🖥 Asta telematica (partecipazione online)', weight: 0 });
+
+  // Categoria
+  if (a.tipologia_label) r.push({ type: 'info', text: `Categoria: <strong>${escapeHtml(a.tipologia_label)}</strong>`, weight: 0 });
+
+  // Località
+  if (a.comune) {
+    const loc = `${escapeHtml(a.comune)}${a.provincia ? ' (' + escapeHtml(a.provincia) + ')' : ''}${a.regione ? ', ' + escapeHtml(a.regione) : ''}`;
+    r.push({ type: 'info', text: `📍 Località: <strong>${loc}</strong>`, weight: 0 });
+  }
+
+  return r;
+}
+
+function _renderHighlightReasons(a) {
+  const reasons = _highlightReasons(a);
+  const positivi = reasons.filter(x => x.type === 'ok');
+  const negativi = reasons.filter(x => x.type === 'warn');
+  const neutri = reasons.filter(x => x.type === 'info');
+
+  const totalScore = Math.round(_highlightScore(a));
+  let verdict = 'NORMALE', verdictColor = 'var(--text-dim)';
+  if (totalScore >= 90) { verdict = 'ALTAMENTE RACCOMANDATA'; verdictColor = 'var(--green)'; }
+  else if (totalScore >= 70) { verdict = 'INTERESSANTE'; verdictColor = 'var(--green)'; }
+  else if (totalScore >= 55) { verdict = 'MEDIA'; verdictColor = 'var(--yellow)'; }
+  else if (totalScore >= 40) { verdict = 'DUBBIA'; verdictColor = 'var(--yellow)'; }
+  else { verdict = 'DA EVITARE'; verdictColor = 'var(--red)'; }
+
+  const renderList = (items, icon) => items.map(it =>
+    `<li><span class="hl-icon">${icon}</span>${it.text} <span class="hl-weight">(${it.weight > 0 ? '+' : ''}${it.weight})</span></li>`
+  ).join('');
+
+  return `
+    <div class="why-attentioned">
+      <h4>🌟 Perché questa asta è da attenzionare</h4>
+      <div class="why-verdict">
+        <div>
+          <div class="why-label">Valutazione complessiva</div>
+          <div class="why-v" style="color: ${verdictColor};">${verdict}</div>
+        </div>
+        <div style="text-align: right;">
+          <div class="why-label">Punteggio selezione</div>
+          <div class="why-score">${totalScore}</div>
+        </div>
+      </div>
+      ${positivi.length ? `
+        <div class="why-group">
+          <h5 class="why-h5-ok">✓ Punti di forza (${positivi.length})</h5>
+          <ul class="why-list why-list-ok">${renderList(positivi, '✓')}</ul>
+        </div>` : ''}
+      ${negativi.length ? `
+        <div class="why-group">
+          <h5 class="why-h5-warn">⚠ Criticità (${negativi.length})</h5>
+          <ul class="why-list why-list-warn">${renderList(negativi, '⚠')}</ul>
+        </div>` : ''}
+      ${neutri.length ? `
+        <div class="why-group">
+          <h5 class="why-h5-info">ⓘ Caratteristiche</h5>
+          <ul class="why-list why-list-info">${renderList(neutri, 'ⓘ')}</ul>
+        </div>` : ''}
+      <p class="why-foot">
+        Per un'analisi <strong>incrociata con prezzi reali di mercato</strong> (Autoscout24, Immobiliare, Idealista) e lettura della perizia ufficiale,
+        usa il pulsante <strong>"📊 Analisi Mercato Incrociata"</strong> in fondo a questa scheda.
+      </p>
+    </div>`;
+}
+
 function pickHighlightsFromList(list) {
   // Esclude lotti scaduti / senza tipologia
   const eligible = list.filter(a =>
@@ -1860,53 +2071,59 @@ function _renderHighlightsForList(list) {
     .join('');
 }
 
+function _populateHighlightRegionSelect() {
+  const sel = $('#highlightRegione');
+  if (!sel) return;
+  // Raggruppa per regione e conta
+  const counts = {};
+  for (const a of STATE.enrichedAste) {
+    const r = a.regione || 'Sconosciuta';
+    counts[r] = (counts[r] || 0) + 1;
+  }
+  const regioni = Object.keys(counts).sort((a, b) => {
+    if (a === 'Sconosciuta') return 1;
+    if (b === 'Sconosciuta') return -1;
+    return a.localeCompare(b, 'it');
+  });
+  const cur = sel.value || (STATE.filters.regione || '__all__');
+  sel.innerHTML = `<option value="__all__">Tutte le regioni</option>` +
+    regioni.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)} (${counts[r]})</option>`).join('');
+  // Mantieni selezione o usa filtro regione se attivo
+  if (STATE.filters.regione && regioni.includes(STATE.filters.regione)) {
+    sel.value = STATE.filters.regione;
+  } else if (regioni.includes(cur)) {
+    sel.value = cur;
+  } else {
+    sel.value = '__all__';
+  }
+}
+
 function renderHighlights() {
   const section = $('#highlights');
   const grid = $('#highlightsGrid');
-  const title = $('#highlightsTitle');
   if (!STATE.enrichedAste.length) {
     section.style.display = 'none';
     return;
   }
 
-  const regioneFiltro = STATE.filters.regione;
+  _populateHighlightRegionSelect();
+  const sel = $('#highlightRegione');
+  const selectedRegione = sel ? sel.value : '__all__';
+  const sub = $('#highlightsSub');
 
-  if (regioneFiltro) {
-    // Filtro regione attivo: 1 lotto per categoria SOLO di quella regione
-    const aste = STATE.enrichedAste.filter(a =>
-      (a.regione || '').toLowerCase().includes(regioneFiltro.toLowerCase())
-    );
+  if (selectedRegione && selectedRegione !== '__all__') {
+    // Singola regione selezionata
+    const aste = STATE.enrichedAste.filter(a => a.regione === selectedRegione);
     const html = _renderHighlightsForList(aste);
     if (!html) { section.style.display = 'none'; return; }
-    if (title) title.textContent = `🌟 Da Attenzionare — ${regioneFiltro}`;
-    grid.innerHTML = html;
+    if (sub) sub.textContent = `${aste.length} lotti in ${selectedRegione}`;
+    grid.innerHTML = `<div class="highlights-grid">${html}</div>`;
   } else {
-    // "Tutte le regioni": raggruppa per regione (top categorie per ciascuna)
-    const groups = {};
-    for (const a of STATE.enrichedAste) {
-      const r = a.regione || 'Sconosciuta';
-      if (!groups[r]) groups[r] = [];
-      groups[r].push(a);
-    }
-    // Ordina regioni alfabeticamente (Sconosciuta in fondo)
-    const ordine = Object.keys(groups).sort((a, b) => {
-      if (a === 'Sconosciuta') return 1;
-      if (b === 'Sconosciuta') return -1;
-      return a.localeCompare(b, 'it');
-    });
-    let html = '';
-    for (const reg of ordine) {
-      const inner = _renderHighlightsForList(groups[reg]);
-      if (!inner) continue;
-      html += `
-        <div class="hl-region-group">
-          <h4 class="hl-region-header">${escapeHtml(reg)} <span class="hl-region-count">${groups[reg].length} lotti totali</span></h4>
-          <div class="highlights-grid">${inner}</div>
-        </div>`;
-    }
+    // Tutte le regioni: top categorie globali (un solo gruppo)
+    const html = _renderHighlightsForList(STATE.enrichedAste);
     if (!html) { section.style.display = 'none'; return; }
-    if (title) title.textContent = `🌟 Da Attenzionare — Tutte le regioni`;
-    grid.innerHTML = html;
+    if (sub) sub.textContent = `Top categorie nazionali su ${STATE.enrichedAste.length} lotti totali`;
+    grid.innerHTML = `<div class="highlights-grid">${html}</div>`;
   }
 
   section.style.display = 'block';
@@ -2084,6 +2301,7 @@ function openModal(id) {
   const defaultScenario = isMobileCat ? 'no_iva' : 'prima';
 
   $('#modalBody').innerHTML = `
+    ${_renderHighlightReasons(a)}
     ${mapsHtml}
     <div class="modal-grid">${fieldsHtml}</div>
     <div class="costi-box" id="costiBox">${renderCostiBox(a, defaultScenario)}</div>
@@ -2675,6 +2893,9 @@ function bindEvents() {
   $('#filterCategoria').addEventListener('change', e => { STATE.filters.categoria = e.target.value; renderAll(); });
   $('#filterOccupazione').addEventListener('change', e => { STATE.filters.occupazione = e.target.value; renderAll(); });
   $('#filterOrdine').addEventListener('change', e => { STATE.filters.ordine = e.target.value; renderAll(); });
+
+  // Dropdown regione highlights (cambia solo gli highlights, non i filtri principali)
+  $('#highlightRegione').addEventListener('change', () => renderHighlights());
 
   // Toggle scadenza
   $$('#filterScadenza .toggle').forEach(t => {
