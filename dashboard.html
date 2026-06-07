@@ -681,6 +681,28 @@
   .hl-card-deadline.urgent { color: var(--red); font-weight: 600; }
   .hl-card-deadline.warning { color: var(--yellow); }
   .hl-card-deadline.normal { color: var(--text-dim); }
+  .hl-region-group {
+    margin-bottom: 22px;
+  }
+  .hl-region-group:last-child { margin-bottom: 0; }
+  .hl-region-header {
+    font-size: 12px;
+    color: var(--text);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: baseline; gap: 10px;
+  }
+  .hl-region-count {
+    font-size: 10px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
+  }
 
   /* ============================================================
      ANALISI MERCATO INCROCIATA
@@ -1201,13 +1223,13 @@
         </div>
       </div>
 
-      <!-- ============ HIGHLIGHTS: 1 lotto top per categoria ============ -->
+      <!-- ============ HIGHLIGHTS: 1 lotto top per categoria, raggruppato per regione ============ -->
       <section id="highlights" class="highlights" style="display:none;">
         <div class="highlights-header">
-          <h3>🌟 Da Attenzionare</h3>
+          <h3 id="highlightsTitle">🌟 Da Attenzionare</h3>
           <span class="highlights-sub">1 miglior lotto per categoria · aggiornato automaticamente</span>
         </div>
-        <div class="highlights-grid" id="highlightsGrid"></div>
+        <div id="highlightsGrid"></div>
       </section>
 
       <div id="resultsGrid" class="results-grid"></div>
@@ -1779,10 +1801,9 @@ function _highlightScore(a) {
   return s;
 }
 
-function pickHighlights() {
-  // Considera SOLO i dati dello scrape, non i filtri (highlights sono indipendenti)
-  // Esclude lotti scaduti
-  const eligible = STATE.enrichedAste.filter(a =>
+function pickHighlightsFromList(list) {
+  // Esclude lotti scaduti / senza tipologia
+  const eligible = list.filter(a =>
     a.tipologia_id != null && (a._giorni == null || a._giorni >= -1)
   );
   const best = {};  // tipologia_id → migliore lotto
@@ -1794,6 +1815,10 @@ function pickHighlights() {
     }
   }
   return best;
+}
+
+function pickHighlights() {
+  return pickHighlightsFromList(STATE.enrichedAste);
 }
 
 function highlightCardHtml(cat, a) {
@@ -1826,24 +1851,64 @@ function highlightCardHtml(cat, a) {
     </div>`;
 }
 
-function renderHighlights() {
-  const section = $('#highlights');
-  const grid = $('#highlightsGrid');
-  if (!STATE.enrichedAste.length) {
-    section.style.display = 'none';
-    return;
-  }
-  const best = pickHighlights();
-  const html = HIGHLIGHT_CATEGORIES
+function _renderHighlightsForList(list) {
+  const best = pickHighlightsFromList(list);
+  return HIGHLIGHT_CATEGORIES
     .map(cat => ({ cat, lotto: best[cat.id] }))
     .filter(x => x.lotto)
     .map(x => highlightCardHtml(x.cat, x.lotto))
     .join('');
-  if (!html) {
+}
+
+function renderHighlights() {
+  const section = $('#highlights');
+  const grid = $('#highlightsGrid');
+  const title = $('#highlightsTitle');
+  if (!STATE.enrichedAste.length) {
     section.style.display = 'none';
     return;
   }
-  grid.innerHTML = html;
+
+  const regioneFiltro = STATE.filters.regione;
+
+  if (regioneFiltro) {
+    // Filtro regione attivo: 1 lotto per categoria SOLO di quella regione
+    const aste = STATE.enrichedAste.filter(a =>
+      (a.regione || '').toLowerCase().includes(regioneFiltro.toLowerCase())
+    );
+    const html = _renderHighlightsForList(aste);
+    if (!html) { section.style.display = 'none'; return; }
+    if (title) title.textContent = `🌟 Da Attenzionare — ${regioneFiltro}`;
+    grid.innerHTML = html;
+  } else {
+    // "Tutte le regioni": raggruppa per regione (top categorie per ciascuna)
+    const groups = {};
+    for (const a of STATE.enrichedAste) {
+      const r = a.regione || 'Sconosciuta';
+      if (!groups[r]) groups[r] = [];
+      groups[r].push(a);
+    }
+    // Ordina regioni alfabeticamente (Sconosciuta in fondo)
+    const ordine = Object.keys(groups).sort((a, b) => {
+      if (a === 'Sconosciuta') return 1;
+      if (b === 'Sconosciuta') return -1;
+      return a.localeCompare(b, 'it');
+    });
+    let html = '';
+    for (const reg of ordine) {
+      const inner = _renderHighlightsForList(groups[reg]);
+      if (!inner) continue;
+      html += `
+        <div class="hl-region-group">
+          <h4 class="hl-region-header">${escapeHtml(reg)} <span class="hl-region-count">${groups[reg].length} lotti totali</span></h4>
+          <div class="highlights-grid">${inner}</div>
+        </div>`;
+    }
+    if (!html) { section.style.display = 'none'; return; }
+    if (title) title.textContent = `🌟 Da Attenzionare — Tutte le regioni`;
+    grid.innerHTML = html;
+  }
+
   section.style.display = 'block';
   grid.querySelectorAll('.hl-card').forEach(el => {
     el.addEventListener('click', () => openModal(parseInt(el.dataset.id, 10)));

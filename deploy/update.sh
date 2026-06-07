@@ -7,7 +7,9 @@
 # Uso (sul VPS):
 #   sudo bash /root/aste-giudiziarie/deploy/update.sh
 # =====================================================================
-set -euo pipefail
+# Niente "set -u": .env contiene hash bcrypt con $ letterali ($2b$12$...) che bash
+# interpreterebbe come variabili non definite.
+set -eo pipefail
 
 APP_DIR=/root/aste-giudiziarie
 ENV_FILE=/etc/aste-giudiziarie/.env
@@ -22,19 +24,20 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-# Carica GITHUB_PAT da .env (per repo privato)
-set -a
-source "$ENV_FILE"
-set +a
+# Estrai SOLO GITHUB_PAT dal .env (senza sourcing, per evitare expansion di $ negli hash)
+GITHUB_PAT=$(grep -E '^GITHUB_PAT=' "$ENV_FILE" | head -1 | cut -d= -f2-)
 
-if [[ -z "${GITHUB_PAT:-}" ]]; then
+if [[ -z "$GITHUB_PAT" ]]; then
   echo "ERRORE: GITHUB_PAT mancante in $ENV_FILE."
   exit 1
 fi
 
 echo "==> git pull (con PAT)"
 cd "$APP_DIR"
-git -c http.extraHeader="Authorization: Bearer $GITHUB_PAT" pull --ff-only
+# Usa URL embedded auth, poi ripristina remote pulito (evita problemi quoting http.extraHeader)
+git remote set-url origin "https://oauth2:${GITHUB_PAT}@github.com/lumontech/aste-giudiziarie.git"
+git pull --ff-only
+git remote set-url origin https://github.com/lumontech/aste-giudiziarie.git
 
 echo "==> aggiorno dipendenze"
 "$APP_DIR/.venv/bin/pip" install -r requirements.txt -q
