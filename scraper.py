@@ -434,10 +434,11 @@ PROVINCIA_REGIONE = {
 }
 
 
-async def _fetch_ids_immobili_regione(
+async def _fetch_map_immobili_regione(
     client: httpx.AsyncClient, regione: str,
     *, prezzo_min, prezzo_max, id_tipologie,
-) -> list[int]:
+) -> list[dict]:
+    """Ritorna i risultati completi di Search/Map (con lat/lng/prezzoBase)."""
     tids = ([t for t in id_tipologie if t in IDS_IMMOBILI]
             if id_tipologie else IDS_IMMOBILI)
     if not tids:
@@ -446,27 +447,36 @@ async def _fetch_ids_immobili_regione(
         regione=regione, prezzo_min=prezzo_min, prezzo_max=prezzo_max,
         id_tipologie=tids, tipo_ricerca=1,
     )
-    map_results = await _call_search_map(client, body)
-    return [m["idLotto"] for m in map_results if "idLotto" in m]
+    return await _call_search_map(client, body)
 
 
-async def _fetch_ids_mobili_nazionale(
+async def _fetch_map_mobili_nazionale(
     client: httpx.AsyncClient,
     *, prezzo_min, prezzo_max, id_tipologie,
-) -> list[int]:
-    """Mobili: 1 sola chiamata nazionale (no filtro regione) — il filtro
-    regione+mobili nel backend dà risultati incompleti."""
+) -> list[dict]:
+    """Mobili: 1 sola chiamata nazionale (no filtro regione).
+    Ritorna i risultati completi di Search/Map."""
     tids = ([t for t in id_tipologie if t in IDS_MOBILI]
             if id_tipologie else IDS_MOBILI)
     if not tids:
         return []
     body = _build_search_params(
-        regione=None,  # IMPORTANTE: niente filtro regione per mobili
-        prezzo_min=prezzo_min, prezzo_max=prezzo_max,
+        regione=None, prezzo_min=prezzo_min, prezzo_max=prezzo_max,
         id_tipologie=tids, tipo_ricerca=2,
     )
-    map_results = await _call_search_map(client, body)
-    return [m["idLotto"] for m in map_results if "idLotto" in m]
+    return await _call_search_map(client, body)
+
+
+def _extract_coords_map(map_results: list[dict]) -> dict[int, tuple]:
+    """Estrae mappa {idLotto: (lat, lng)} dai risultati di Search/Map."""
+    coords = {}
+    for m in map_results:
+        iid = m.get("idLotto")
+        lat = m.get("latitudine")
+        lng = m.get("longitudine")
+        if iid and m.get("geolocalizzato") and lat and lng:
+            coords[iid] = (lat, lng)
+    return coords
 
 
 async def _fetch_details(client: httpx.AsyncClient, ids: list[int]) -> list[dict]:
@@ -530,44 +540,58 @@ async def main(
         for i, reg in enumerate(target, 1):
             logger.info("[%d/%d] IMMOBILI %s", i, len(target), reg)
             try:
-                ids = await _fetch_ids_immobili_regione(
+                map_results = await _fetch_map_immobili_regione(
                     client, reg,
                     prezzo_min=prezzo_min, prezzo_max=prezzo_max,
                     id_tipologie=id_tipologie,
                 )
-                if not ids:
+                if not map_results:
                     aste_per_regione[reg] = 0
                     continue
+                # Salva mappa coordinate da Search/Map (Search/Data non le ritorna)
+                coords_map = _extract_coords_map(map_results)
+                ids = [m["idLotto"] for m in map_results if "idLotto" in m]
                 details = await _fetch_details(client, ids)
+                # Inietta lat/lng dai risultati di Map
+                for d in details:
+                    iid = d.get("idLotto")
+                    if iid in coords_map:
+                        d["latitudine"], d["longitudine"] = coords_map[iid]
                 norm = [_normalize(d, idx=len(aste_all)+j, regione_default=reg) for j, d in enumerate(details)]
                 aste_all.extend(norm)
                 aste_per_regione[reg] = len(norm)
-                logger.info("  ✓ %s immobili: %d aste", reg, len(norm))
+                logger.info("  ✓ %s immobili: %d aste (%d geolocalizzate)",
+                            reg, len(norm), sum(1 for a in norm if a.get("latitudine")))
             except Exception as e:
                 errori[reg] = str(e)
                 aste_per_regione[reg] = aste_per_regione.get(reg, 0)
                 logger.error("  ✗ %s immobili: %s", reg, e)
 
         # --- Step 2: mobili (1 sola chiamata nazionale, no filtro regione) ---
-        # Solo se non sono state filtrate solo regioni specifiche (in tal caso
-        # filtreremo lato client dopo aver attribuito la regione via provincia)
         try:
             logger.info("MOBILI nazionali (1 chiamata, no filtro regione)")
-            ids_mob = await _fetch_ids_mobili_nazionale(
+            map_mob = await _fetch_map_mobili_nazionale(
                 client,
                 prezzo_min=prezzo_min, prezzo_max=prezzo_max,
                 id_tipologie=id_tipologie,
             )
-            if ids_mob:
+            if map_mob:
+                coords_map_mob = _extract_coords_map(map_mob)
+                ids_mob = [m["idLotto"] for m in map_mob if "idLotto" in m]
                 details_mob = await _fetch_details(client, ids_mob)
+                # Inietta lat/lng
+                for d in details_mob:
+                    iid = d.get("idLotto")
+                    if iid in coords_map_mob:
+                        d["latitudine"], d["longitudine"] = coords_map_mob[iid]
                 # Attribuisci regione tramite provincia
                 regioni_set = set(target)
-                solo_target = bool(regioni)  # se utente ha chiesto regioni specifiche
+                solo_target = bool(regioni)
                 for j, d in enumerate(details_mob):
                     prov = (d.get("provincia") or "").upper()
                     reg = PROVINCIA_REGIONE.get(prov, "Sconosciuta")
                     if solo_target and reg not in regioni_set:
-                        continue  # filtro client per regione richiesta
+                        continue
                     norm_item = _normalize(d, idx=len(aste_all)+j, regione_default=reg)
                     aste_all.append(norm_item)
                     aste_per_regione[reg] = aste_per_regione.get(reg, 0) + 1
