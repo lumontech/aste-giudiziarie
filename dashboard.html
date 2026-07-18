@@ -2266,6 +2266,8 @@ function renderHighlights() {
 
 function renderAll() {
   renderHighlights();
+  // Aggiorna la mappa se già inizializzata (segue filtri + refresh dati)
+  if (STATE.map) renderMap();
   const filtered = applyFilters(STATE.enrichedAste);
   renderStats(filtered);
   const grid = $('#resultsGrid');
@@ -3215,6 +3217,7 @@ function _mapPopupHtml(a) {
 }
 
 function renderMap() {
+  const wasFirstInit = !STATE.map;
   _initMap();
   const filtered = applyFilters(STATE.enrichedAste);
   STATE.markerCluster.clearLayers();
@@ -3229,13 +3232,20 @@ function renderMap() {
     markers.push(marker);
   }
   STATE.markerCluster.addLayers(markers);
-  $('#mapMarkerCount').textContent = markers.length.toLocaleString('it-IT');
-  if (markers.length > 0) {
+  const countEl = $('#mapMarkerCount');
+  if (countEl) countEl.textContent = markers.length.toLocaleString('it-IT');
+
+  // Fit bounds SOLO alla prima inizializzazione (poi rispetta zoom/pan utente)
+  if (wasFirstInit && markers.length > 0) {
     setTimeout(() => {
       STATE.map.invalidateSize();
       STATE.map.fitBounds(STATE.markerCluster.getBounds(), { padding: [30, 30], maxZoom: 12 });
     }, 100);
+  } else if (STATE.map) {
+    // Forza re-render tile se la mappa è visibile
+    setTimeout(() => STATE.map.invalidateSize(), 50);
   }
+
   // Delegation: click su bottone "Apri dettaglio" nei popup
   STATE.map.off('popupopen').on('popupopen', (e) => {
     const btn = e.popup._container.querySelector('.popup-open-btn');
