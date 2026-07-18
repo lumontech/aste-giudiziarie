@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Aste Giudiziarie — Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <style>
   /* ============================================================
      RESET + BASE
@@ -31,6 +36,38 @@
     --mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Consolas, monospace;
     --sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
   }
+  /* ============================================================
+     TEMA CHIARO (attivato con data-theme="light" sull'html)
+     ============================================================ */
+  [data-theme="light"] {
+    --bg: #faf9f5;
+    --card: #ffffff;
+    --card-2: #f4f2ec;
+    --border: #e5e2d8;
+    --border-2: #d0ccc0;
+    --text: #1f1f1c;
+    --text-dim: #6a6864;
+    --text-faint: #a0a0a0;
+    --green: #16a34a;
+    --green-dim: rgba(22, 163, 74, 0.10);
+    --gold: #a67e46;
+    --gold-dim: rgba(166, 126, 70, 0.10);
+    --red: #dc2626;
+    --red-dim: rgba(220, 38, 38, 0.10);
+    --yellow: #d97706;
+    --yellow-dim: rgba(217, 119, 6, 0.10);
+    --blue: #2563eb;
+  }
+  [data-theme="light"] ::-webkit-scrollbar-track { background: var(--bg); }
+  [data-theme="light"] ::-webkit-scrollbar-thumb { background: #d5d2c5; }
+  [data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #b8b5a8; }
+  [data-theme="light"] .header { background: #ffffff; }
+  [data-theme="light"] .sidebar { background: #f7f5ee; }
+  [data-theme="light"] .btn-primary { color: #ffffff; }
+  [data-theme="light"] .preset,
+  [data-theme="light"] .toggle,
+  [data-theme="light"] select,
+  [data-theme="light"] input[type="text"] { background: #ffffff; }
   html, body {
     background: var(--bg);
     color: var(--text);
@@ -578,6 +615,87 @@
     line-height: 1.6;
     white-space: pre-wrap;
     display: none;
+  }
+
+  /* ============================================================
+     MAPPA (Leaflet) + toggle tema
+     ============================================================ */
+  .theme-toggle {
+    padding: 7px 10px;
+    font-size: 15px;
+    background: var(--card);
+    line-height: 1;
+  }
+  .map-topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 4px;
+    margin-bottom: 10px;
+  }
+  .map-stats {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+  }
+  .map-stats span:first-child {
+    color: var(--gold);
+    font-weight: 600;
+    font-size: 14px;
+  }
+  #mapContainer {
+    width: 100%;
+    height: calc(100vh - 210px);
+    min-height: 500px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--card);
+  }
+  .leaflet-container {
+    background: var(--card-2);
+    font-family: var(--sans);
+  }
+  [data-theme="dark"] .leaflet-tile-pane { filter: hue-rotate(180deg) invert(0.9) brightness(0.7); }
+  .leaflet-popup-content-wrapper {
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--border-2);
+    border-radius: 4px;
+  }
+  .leaflet-popup-tip { background: var(--card); }
+  .leaflet-popup-content {
+    margin: 12px 14px;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .map-popup h4 {
+    color: var(--gold);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+  }
+  .map-popup .price {
+    font-family: var(--mono);
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .map-popup .meta {
+    color: var(--text-dim);
+    font-size: 11px;
+    margin: 4px 0;
+  }
+  .map-popup button {
+    margin-top: 6px;
+    padding: 5px 12px;
+    background: var(--gold);
+    color: #111;
+    border: none;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   }
 
   /* ============================================================
@@ -1149,6 +1267,7 @@
     </div>
     <div class="tabs">
       <button class="tab active" data-tab="aste">Aste Giudiziarie</button>
+      <button class="tab" data-tab="mappa">🗺 Mappa</button>
       <button class="tab" data-tab="occasioni">Occasioni Mercato</button>
     </div>
     <div class="header-right">
@@ -1160,6 +1279,7 @@
         <span class="label">Verifica server...</span>
       </div>
       <button class="btn btn-primary" id="btnScanNow">Scansiona Ora</button>
+      <button class="btn theme-toggle" id="btnTheme" title="Cambia tema">🌙</button>
       <button class="btn-logout" id="btnLogout" style="display:none;">Esci</button>
     </div>
   </header>
@@ -1320,6 +1440,18 @@
     </div>
 
     <!-- ============ TAB OCCASIONI ============ -->
+    <!-- ============ TAB MAPPA ============ -->
+    <div id="tabMappa" style="display: none;">
+      <div class="map-topbar">
+        <div class="map-stats">
+          <span id="mapMarkerCount">—</span> lotti geolocalizzati ·
+          <span style="color:var(--text-dim);">rispetta i filtri attivi</span>
+        </div>
+        <button class="btn" id="btnMapFit">↔ Adatta vista</button>
+      </div>
+      <div id="mapContainer"></div>
+    </div>
+
     <div id="tabOccasioni" style="display: none;">
       <div class="stats-bar">
         <div class="stat-card">
@@ -2965,8 +3097,21 @@ function bindEvents() {
       t.classList.add('active');
       const target = t.dataset.tab;
       $('#tabAste').style.display = target === 'aste' ? 'block' : 'none';
+      $('#tabMappa').style.display = target === 'mappa' ? 'block' : 'none';
       $('#tabOccasioni').style.display = target === 'occasioni' ? 'block' : 'none';
+      if (target === 'mappa') renderMap();
     });
+  });
+
+  // Toggle tema chiaro/scuro
+  $('#btnTheme').addEventListener('click', () => {
+    const cur = document.documentElement.getAttribute('data-theme') || 'dark';
+    applyTheme(cur === 'dark' ? 'light' : 'dark');
+  });
+  $('#btnMapFit').addEventListener('click', () => {
+    if (STATE.markerCluster && STATE.markerCluster.getLayers().length) {
+      STATE.map.fitBounds(STATE.markerCluster.getBounds(), { padding: [30, 30] });
+    }
   });
 
   $('#btnGenerateDeals').addEventListener('click', generateDeals);
@@ -3019,9 +3164,97 @@ function startAutoRefresh() {
 }
 
 /* =====================================================================
+   TEMA CHIARO / SCURO
+   ===================================================================== */
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = $('#btnTheme');
+  if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀';
+  try { localStorage.setItem('aste_theme', theme); } catch {}
+  // Se la mappa è già inizializzata, invalidate size (per re-render tile)
+  if (STATE.map) setTimeout(() => STATE.map.invalidateSize(), 100);
+}
+
+/* =====================================================================
+   MAPPA GEOGRAFICA (Leaflet + MarkerCluster)
+   ===================================================================== */
+function _initMap() {
+  if (STATE.map) return;
+  STATE.map = L.map('mapContainer', { preferCanvas: true }).setView([42.5, 12.5], 6);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap',
+    maxZoom: 18,
+  }).addTo(STATE.map);
+  STATE.markerCluster = L.markerClusterGroup({
+    chunkedLoading: true,
+    maxClusterRadius: 55,
+    spiderfyOnMaxZoom: true,
+    showCoverageOnHover: false,
+  });
+  STATE.map.addLayer(STATE.markerCluster);
+}
+
+function _mapPopupHtml(a) {
+  const price = a.prezzo_base ? fmtEuro(a.prezzo_base) : '—';
+  const loc = a.comune ? `${escapeHtml(a.comune)}${a.provincia ? ' (' + escapeHtml(a.provincia) + ')' : ''}` : '';
+  const gg = a._giorni;
+  let deadline = '';
+  if (gg != null && gg >= 0) deadline = `<div class="meta">⏰ ${gg} giorni all'asta</div>`;
+  const catLabel = a.tipologia_label || 'Lotto';
+  return `
+    <div class="map-popup">
+      <h4>${escapeHtml(catLabel)}</h4>
+      <div class="price">${price}</div>
+      ${a.titolo ? `<div class="meta" style="color:var(--text);">${escapeHtml(a.titolo).slice(0, 80)}</div>` : ''}
+      ${loc ? `<div class="meta">📍 ${loc}</div>` : ''}
+      ${a.tribunale ? `<div class="meta">⚖ Trib. ${escapeHtml(a.tribunale)}</div>` : ''}
+      ${deadline}
+      <div class="meta">Score AI: <strong style="color:var(--gold);">${a._score || 0}/100</strong></div>
+      <button data-lotto-id="${a._id}" class="popup-open-btn">Apri dettaglio</button>
+    </div>`;
+}
+
+function renderMap() {
+  _initMap();
+  const filtered = applyFilters(STATE.enrichedAste);
+  STATE.markerCluster.clearLayers();
+  const markers = [];
+  for (const a of filtered) {
+    const lat = a.latitudine, lng = a.longitudine;
+    if (lat == null || lng == null) continue;
+    if (Math.abs(lat) < 0.5 || Math.abs(lng) < 0.5) continue;
+    if (lat < 35 || lat > 48 || lng < 5 || lng > 20) continue;  // fuori Italia
+    const marker = L.marker([lat, lng]);
+    marker.bindPopup(() => _mapPopupHtml(a));
+    markers.push(marker);
+  }
+  STATE.markerCluster.addLayers(markers);
+  $('#mapMarkerCount').textContent = markers.length.toLocaleString('it-IT');
+  if (markers.length > 0) {
+    setTimeout(() => {
+      STATE.map.invalidateSize();
+      STATE.map.fitBounds(STATE.markerCluster.getBounds(), { padding: [30, 30], maxZoom: 12 });
+    }, 100);
+  }
+  // Delegation: click su bottone "Apri dettaglio" nei popup
+  STATE.map.off('popupopen').on('popupopen', (e) => {
+    const btn = e.popup._container.querySelector('.popup-open-btn');
+    if (btn) {
+      btn.addEventListener('click', () => {
+        const id = parseInt(btn.dataset.lottoId, 10);
+        STATE.map.closePopup();
+        openModal(id);
+      });
+    }
+  });
+}
+
+/* =====================================================================
    BOOT
    ===================================================================== */
 async function init() {
+  // Applica tema salvato PRIMA di tutto
+  applyTheme(localStorage.getItem('aste_theme') || 'dark');
   bindEvents();
   const ok = await checkServer();
   if (!ok) { renderAll(); return; }
